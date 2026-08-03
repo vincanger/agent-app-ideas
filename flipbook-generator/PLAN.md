@@ -11,18 +11,19 @@ just like thumbing a physical flipbook.
 ## 1. The core loop
 
 ```
-draw (tiny canvas, black pencil) → prompt the motion → generate 8–12 frames
-→ scrub the slider to flip → share / export
+draw (tiny canvas, black pencil) → prompt the motion → generate 12–16 AI keyframes
+→ multiply into ~40+ pages (boil variants + interpolation, §6) → scrub to flip
+→ share / export
 ```
 
 Two earlier ideas get repositioned around this loop:
 
 - **Motion is the product.** The prompt describes *what happens* ("the duck dives"),
   so frames must actually progress — this is keyframe animation, not just jitter.
-- **Wiggle/boil becomes free polish, not the product.** Hand-drawn-style AI frames
-  already "boil" naturally (every frame is re-drawn). A cheap client-side noise-warp
-  (see §6) remains useful as an instant-preview toy and to add life to held frames,
-  but it's no longer the MVP centerpiece.
+- **Wiggle/boil becomes the multiplier stage, not the product.** The AI generates
+  12–16 keyframes; the boil layer (§6) turns each into 2–3 near-free variants,
+  which both fills the flipbook out to a proper page count *and* keeps the drawings
+  from looking too smooth/AI-clean.
 
 ---
 
@@ -41,16 +42,26 @@ skribbl.io aesthetic, and it keeps generation quality predictable):
   cheap and enables later features (re-draw at higher res, vector jitter, remix).
 
 Below the canvas: a single prompt field with placeholder text like
-*"What happens next? e.g. 'the duck dives under the water'"* and a frame-count
-choice (8 / 12). That's the whole input UI.
+*"What happens next? e.g. 'the duck dives under the water'"* and a length choice
+(Short ≈ 2 s / Long ≈ 4 s — internally this picks the keyframe + multiplication
+budget, see §6; never expose raw frame math to the user). That's the whole input UI.
 
 ---
 
-## 3. Frame generation: sketch + motion prompt → N coherent frames
+## 3. Frame generation: sketch + motion prompt → N coherent keyframes
 
 This is the hard part. The frames must (a) stay in the user's sketch style, (b) keep
 the subject consistent, and (c) actually progress through the described motion.
-Ranked approaches:
+
+**Frame budget.** A physical flipbook riffles at ~10–12 pages/sec, so a satisfying
+2–4 s flip needs **~24–48 pages** — far more than one grid call yields. The trick is
+classic animation economics: hand animation is shot "on twos" (each drawing held ~2
+frames), so per second of motion you need only 12–16 *distinct drawings*. So the
+pipeline is: generate **12–16 expensive AI keyframes** (this section), then multiply
+them into 24–48+ pages with near-free steps (boil variants + interpolation, §6).
+AI spend scales with *drawings*, page count scales with *multiplication*.
+
+Ranked approaches for the keyframes:
 
 ### Approach 1 — Sprite-grid one-shot (primary for MVP)
 Ask an instruction-following image model (Gemini image / gpt-image-1 / Flux Kontext
@@ -70,7 +81,13 @@ Then slice the grid into frames server-side.
   aspect + margins, then slice robustly (project ink onto rows/columns to find
   gutters rather than trusting exact cell math; normalize each cell to the canvas
   size). Occasionally the model returns 7 or 9 cells — detect and retry, or pad by
-  duplicating the last frame. Cap at 8–12 frames; ask for two grids if more.
+  duplicating the last frame.
+- **Getting to 12–16 keyframes:** a 3×4 grid gives 12 per call; for 16+, **chain
+  grids** — call 2's prompt includes the last frame of call 1 as its starting image
+  ("continue this animation, frames 13–24: ..."), same style reference throughout.
+  Two chained grid calls = 24 keyframes for ~2× the cost, still cheap. Don't push
+  cell counts much past 3×4 per call: at 1024² output a 4×4 grid means 256² cells,
+  and line quality starts to suffer — more grids beats denser grids.
 
 ### Approach 2 — Iterative edit chain (quality tier / fallback)
 frame[n+1] = imageEdit(frame[n], "advance the animation one step: <motion>, step
@@ -119,9 +136,13 @@ The flipbook isn't autoplayed video — it's **flipped by hand**. One component:
             ▲ scrubber handle
 ```
 
-- **Mapping:** the strip is a slider; pointer x → `frameIndex = floor(x / stripWidth
+- **Mapping:** the strip is a slider; pointer x → `pageIndex = floor(x / stripWidth
   * N)`, clamped. Scrubbing swaps a preloaded `<img>` (or draws to a canvas) — no
-  video element, so frame changes are instant and frame-exact.
+  video element, so page changes are instant and frame-exact.
+- **Thumbnails show keyframes, scrub hits every page:** with 24–48 pages, rendering
+  one thumbnail per *keyframe* keeps the strip readable, while the scrub mapping
+  stays continuous over all pages (boil variants included) — sliding within one
+  thumbnail's width still riffles its variants.
 - **Feel is everything:**
   - Preload/decode all frames up front (they're small) so scrubbing never stutters.
   - **Flick momentum:** on release, take pointer velocity and keep advancing frames
@@ -142,7 +163,7 @@ The flipbook isn't autoplayed video — it's **flipped by hand**. One component:
 
 ## 5. UX flow (MVP)
 
-1. **Create:** draw on the canvas → type motion prompt → pick 8 or 12 frames → Go.
+1. **Create:** draw on the canvas → type motion prompt → pick Short/Long → Go.
 2. **Generate:** scrubber appears immediately with frame 1 = the sketch; remaining
    thumbnails stream in (Approach 1 usually lands all at once after one call;
    Approach 2 streams frame by frame).
@@ -189,14 +210,45 @@ that makes the product self-marketing:
 
 ---
 
-## 6. Wiggle layer (kept, demoted to polish)
+## 6. Boil layer = frame multiplication + human touch
 
-Client-side WebGL noise-warp (Perlin displacement, 1–3 px, per-frame seeds) from the
-original plan stays as: (a) an instant "make it wiggle" toy on the bare sketch before
-generation — something fun to look at during the wait, (b) optional boil on top of
-generated frames, (c) the zero-cost free-tier fallback when a user is out of credits.
-The vector-jitter variant (potrace + control-point wobble) is a nice later upgrade
-since we already store stroke data.
+The boiling-line effect isn't just polish — it's the second stage of the pipeline,
+doing two jobs at once:
+
+**Job 1 — multiply keyframes into flipbook pages.** Each AI keyframe becomes 2–3
+*boil variants*: the same drawing re-warped with low-amplitude Perlin displacement
+(1–3 px, different noise seed per variant). Sequenced as
+`k1 k1' k2 k2' k3 k3' …` (or triples for slower pacing), this is exactly how
+shot-on-twos animation feels alive — the drawing "holds" but the lines never sit
+still. 16 keyframes × 2–3 variants = **32–48 pages at zero AI cost**, and because
+the warp is deterministic (seeded noise) variants can be rendered client-side on
+demand rather than stored.
+
+**Job 2 — de-smooth the AI output.** AI keyframes can come back too clean/uniform,
+especially from the same grid call. A light boil pass over *every* page (including
+interpolated ones) restores hand-drawn imperfection, and it also visually papers
+over small continuity glitches between keyframes — jitter makes discontinuity read
+as style rather than error.
+
+Implementation: one WebGL fragment shader (source frame + 2-octave simplex noise
+displacement, uniforms: amplitude, scale, seed) used everywhere — live preview,
+scrubber playback (warp applied at draw time), and export rendering server-side via
+the same shader in headless GL or an ffmpeg displace filter for pixel-identical
+output. Expose a single "wobble" slider (off → subtle → sketchy).
+
+**Optional stage between keyframes and boil:** RIFE/FILM frame interpolation to
+double keyframes (12 → 24) before boiling. Line art can interpolate ghosty, but a
+boil pass on top masks much of it — worth benching. Pipeline summary:
+
+```
+12–16 AI keyframes  →  (optional ×2 interpolation)  →  ×2–3 boil variants
+                    =  24–48+ pages, AI cost unchanged
+```
+
+Also kept from the original wiggle idea: instant "make it wiggle" on the bare sketch
+during generation wait, and wiggle-only mode as the zero-cost free-tier toy. The
+vector-jitter upgrade (jitter stored stroke control points instead of warping
+pixels) applies to frame 1 and any held frames, since we store stroke data.
 
 ---
 
