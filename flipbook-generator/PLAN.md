@@ -149,9 +149,43 @@ The flipbook isn't autoplayed video — it's **flipped by hand**. One component:
 3. **Flip & tweak:** scrub to play. Buttons: *Regenerate* (same sketch, new seed),
    *Continue the story* (append: last frame becomes the new "frame 1" with a new
    prompt — flipbooks become multi-scene), *Add wiggle* (client-side boil, §6).
-4. **Share/export:** public share page with the scrubber (primary viral loop), GIF /
-   MP4, and the **printable PDF flipbook** (n-up with cut/staple margins — physical
-   flipbooks from your kid's duck doodle is the gift/classroom killer feature).
+4. **Share/export:** publish to the public **library** (§5a) and/or share a direct
+   link — both render the scrubber, GIF / MP4 export, and the **printable PDF
+   flipbook** (n-up with cut/staple margins — physical flipbooks from your kid's
+   duck doodle is the gift/classroom killer feature).
+
+---
+
+## 5a. The library (shareability engine)
+
+A public, browsable gallery of everyone's flipbooks — this is the discovery surface
+that makes the product self-marketing:
+
+- **Card grid**, and every card is a *live mini-scrubber*: hovering (desktop) or a
+  thumb-swipe on the card (mobile) riffles that flipbook right in the grid. Cards
+  autoplaying on scroll-into-view is the cheaper fallback, but scrub-in-place is the
+  memorable version. Cards show title, author, frame count, and flip/remix counts.
+- **Browse tabs:** Newest / Trending (flips + remixes over a time window) / Staff
+  picks. Search and tag filters (auto-tag from the prompt) can wait for v1.1.
+- **Detail page** = the share page: full-size scrubber, the prompt, the original
+  sketch (before/after is half the fun), author link, and the two growth buttons:
+  - **Remix** — opens the *original sketch strokes* in your canvas with the prompt
+    prefilled; edit either and regenerate. `parentId` already in the data model
+    threads remix lineages ("see 12 remixes of this duck").
+  - **Continue the story** — start a new scene from the last frame.
+- **Publishing model:** creations are **private by default**; publishing to the
+  library is an explicit action and requires an account (anonymous users can create
+  and link-share, which keeps the try-it funnel frictionless while gating the public
+  surface). Unlisted link-sharing stays available for people who don't want the
+  gallery.
+- **SEO/embeds:** each public flipbook gets an OG-image (animated GIF preview) and
+  an oEmbed/iframe embed of the scrubber — flipbooks embedded in blogs/tweets link
+  back to the library.
+- **Moderation is the price of the library:** publish action runs prompt + image
+  checks; report button on every card; simple review queue (approve/remove/ban)
+  from day one — a kid-adjacent public gallery cannot launch without this.
+- **Metrics that matter:** % of creations published, remix rate, and
+  visitor→creator conversion from library pages (each card is a "make your own" ad).
 
 ---
 
@@ -187,9 +221,12 @@ Full-stack **Wasp** app (React + Node + Prisma):
 ```
 User        (auth, credits)
 Flipbook    (owner, title, prompt, frameCount, strokesJson, sketchUrl,
-             mode[grid|chain|video], status, visibility, parentId → remixes/scenes)
+             mode[grid|chain|video], status,
+             visibility[private|unlisted|published], publishedAt, tags,
+             flipCount, remixCount, parentId → remixes/scenes)
 Frame       (flipbookId, index, url, source[user_sketch|generated])
 Export      (flipbookId, kind[gif|mp4|pdf], url)
+Report      (flipbookId, reporter, reason, status)   — library moderation queue
 ```
 
 ---
@@ -222,11 +259,12 @@ Export      (flipbookId, kind[gif|mp4|pdf], url)
 
 1. **Weekend demo:** canvas → hardcoded model call (Approach 1) → slice → scrubber
    with momentum. No auth, no DB — prove the magic loop end-to-end.
-2. **MVP (1–2 wks):** Wasp app, auth, jobs + provider interface, share pages, GIF
-   export, basic moderation, cost logging.
-3. **v1.1:** printable PDF, quality mode (edit chain), "continue the story",
-   wiggle layer, credits/billing.
-4. **v2:** video-model smooth mode, remix/gallery loops, classroom plan, API.
+2. **MVP (1–2 wks):** Wasp app, auth, jobs + provider interface, share pages, the
+   **library** (Newest tab + publish flow + report/review queue), GIF export,
+   cost logging.
+3. **v1.1:** Remix + Trending, printable PDF, quality mode (edit chain),
+   "continue the story", wiggle layer, credits/billing, search/tags.
+4. **v2:** video-model smooth mode, embeds/oEmbed, classroom plan, API.
 
 ---
 
