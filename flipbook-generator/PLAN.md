@@ -119,6 +119,26 @@ Then slice the grid into frames server-side.
 > (e.g. frames 2→3, 4→5) that boil variants cannot bridge — hence the in-between
 > call in the ladder above.
 
+**Smoothing jumpy motion** (observed in bench: deltas between keyframes are uneven —
+the model does story beats, not equal increments — plus subject/waterline drift
+between cells). Fix ladder, cheapest first:
+
+1. **Shot-list prompting:** one cheap LLM call expands the user's motion prompt
+   into N numbered, evenly-paced frame descriptions ("each frame advances the
+   motion by an equal 1/N increment; the action completes exactly at frame N"),
+   plus anchor constraints ("waterline at the same height in every cell; subject
+   stays the same size"). The image prompt is the storyboard, not the raw wish.
+2. **Registration at slice time (free):** estimate per-frame offset (row-projection
+   for strong horizontals like a waterline; cross-correlation generally) and shift
+   frames so the background locks — most perceived jumpiness is scene lurch, not
+   pose pacing.
+3. **Adaptive in-betweening:** measure adjacent-pair ink difference; request
+   in-betweens only for pairs above threshold, recurse until deltas are roughly
+   uniform. Fixes non-linear pacing exactly where it happens; also drop
+   near-duplicate frames.
+4. **Escalation:** RIFE/FILM interpolation (register first — it dramatically
+   reduces ghosting), then the video-model tier for free physics.
+
 ### Approach 2 — Iterative edit chain (quality tier / fallback)
 frame[n+1] = imageEdit(frame[n], "advance the animation one step: <motion>, step
 n+1 of N, keep the exact same pencil style"). Modern edit models hold character
