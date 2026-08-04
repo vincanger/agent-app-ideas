@@ -28,11 +28,19 @@
     "/frames/frame-26.png",
     "/frames/frame-27.png",
     "/frames/frame-28.png",
-    "/frames/frame-29.png"
+    "/frames/frame-29.png",
+    "/frames/frame-30.png",
+    "/frames/frame-31.png",
+    "/frames/frame-32.png",
+    "/frames/frame-33.png",
+    "/frames/frame-34.png",
+    "/frames/frame-35.png",
+    "/frames/frame-36.png"
   ],
   "motion": "the duck dives under the water",
   "model": "google/nano-banana-2",
-  "mode": "sequential-edit-chain",
+  "mode": "hybrid",
   "total": 36,
-  "generatedAt": "2026-08-04T12:44:41.158Z"
+  "keyframes": 12,
+  "generatedAt": "2026-08-04T13:02:34.877Z"
 }
