@@ -17,33 +17,79 @@ function loadImage(url) {
   })
 }
 
+// Find the cell regions along one axis by locating the drawn border lines:
+// a border row/column is a run of positions where nearly the whole cross-axis
+// is dark ink. Returns `expected` [start, end] regions, or null to fall back.
+function findRegions(counts, crossSpan, expected, axisLen) {
+  const thresh = crossSpan * 0.8
+  const bands = []
+  let s = null
+  for (let i = 0; i <= axisLen; i++) {
+    const dark = i < axisLen && counts[i] > thresh
+    if (dark && s === null) s = i
+    if (!dark && s !== null) { bands.push([s, i - 1]); s = null }
+  }
+  const regions = []
+  let prev = 0
+  for (const [a, b] of bands) {
+    if (a - prev > (axisLen / expected) * 0.4) regions.push([prev, a - 1])
+    prev = b + 1
+  }
+  if (axisLen - prev > (axisLen / expected) * 0.4) regions.push([prev, axisLen - 1])
+  return regions.length === expected ? regions : null
+}
+
+function equalRegions(axisLen, n) {
+  return Array.from({ length: n }, (_, i) => [
+    Math.round((i * axisLen) / n),
+    Math.round(((i + 1) * axisLen) / n) - 1,
+  ])
+}
+
 async function sliceGrid(url) {
   const img = await loadImage(url)
-  const cw = img.width / COLS
-  const ch = img.height / ROWS
-  const outW = Math.round(cw * (1 - 2 * INSET))
-  const outH = Math.round(ch * (1 - 2 * INSET))
-  const frames = []
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      const canvas = document.createElement('canvas')
-      canvas.width = outW
-      canvas.height = outH
-      const ctx = canvas.getContext('2d')
-      ctx.fillStyle = '#fff'
-      ctx.fillRect(0, 0, outW, outH)
-      ctx.drawImage(
-        img,
-        c * cw + cw * INSET,
-        r * ch + ch * INSET,
-        cw * (1 - 2 * INSET),
-        ch * (1 - 2 * INSET),
-        0, 0, outW, outH,
-      )
-      frames.push(canvas.toDataURL('image/png'))
+  const W = img.width
+  const H = img.height
+  const probe = document.createElement('canvas')
+  probe.width = W
+  probe.height = H
+  const pctx = probe.getContext('2d', { willReadFrequently: true })
+  pctx.drawImage(img, 0, 0)
+  const data = pctx.getImageData(0, 0, W, H).data
+  const colCounts = new Float32Array(W) // dark pixels per column
+  const rowCounts = new Float32Array(H) // dark pixels per row
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+      if (lum < 80) { colCounts[x]++; rowCounts[y]++ }
     }
   }
-  return { frames, aspect: outW / outH }
+  const colRegions = findRegions(colCounts, H, COLS, W) ?? equalRegions(W, COLS)
+  const rowRegions = findRegions(rowCounts, W, ROWS, H) ?? equalRegions(H, ROWS)
+
+  const frames = []
+  let aspect = 1
+  for (const [ry0, ry1] of rowRegions) {
+    for (const [cx0, cx1] of colRegions) {
+      const padX = (cx1 - cx0) * INSET
+      const padY = (ry1 - ry0) * INSET
+      const sx = cx0 + padX
+      const sy = ry0 + padY
+      const sw = cx1 - cx0 - 2 * padX
+      const sh = ry1 - ry0 - 2 * padY
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(sw)
+      canvas.height = Math.round(sh)
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+      frames.push(canvas.toDataURL('image/png'))
+      aspect = canvas.width / canvas.height
+    }
+  }
+  return { frames, aspect }
 }
 
 // k1 b1 k2 b2 ... b11 k12  (b12 is the model's "repeat last frame" filler — dropped)
@@ -189,10 +235,13 @@ export default function App() {
   const playDir = useRef(1)
 
   useEffect(() => {
-    Promise.all([sliceGrid('/keyframes.png'), sliceGrid('/inbetweens.png')])
+    // in-between grid is optional — keyframes-only flipbook until it exists
+    Promise.all([sliceGrid('/keyframes.png'), sliceGrid('/inbetweens.png').catch(() => null)])
       .then(([keys, betweens]) => {
         setAspect(keys.aspect)
-        setPages(interleave(keys.frames, betweens.frames))
+        setPages(betweens
+          ? interleave(keys.frames, betweens.frames)
+          : keys.frames.map((src, i) => ({ src, keyIndex: i })))
       })
   }, [])
 
