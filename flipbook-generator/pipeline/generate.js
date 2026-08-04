@@ -112,7 +112,7 @@ for (let i = 0; i < gapCount; i++) kfPage.push(kfPage[i] + 1 + gapSizes[i])
 fs.mkdirSync(outDir, { recursive: true })
 const frameFile = (p) => path.join(outDir, `frame-${String(p).padStart(2, '0')}.png`)
 
-if (!resume) {
+function wipeOldOutput() {
   for (const f of fs.readdirSync(outDir)) {
     if (/^frame-\d+\.png$/.test(f) || f === 'manifest.json') fs.unlinkSync(path.join(outDir, f))
   }
@@ -132,11 +132,27 @@ const startedAt = Date.now()
 const log = (msg) => console.log(msg)
 
 // ---------- phase 1: sequential keyframe chain ----------
+// The first generation doubles as a preflight: only wipe the previous run's
+// output once we know the API accepts calls (credit, auth, model all OK).
+const kfBuf = [sketch]
+let preflight = null
+if (!resume) {
+  const t0 = Date.now()
+  preflight = await generate(keyframePrompt(2), [sketch, sketch])
+  wipeOldOutput()
+  log(`preflight OK  ${((Date.now() - t0) / 1000).toFixed(1)}s`)
+}
 fs.writeFileSync(frameFile(1), sketch)
 log(`keyframe 1/${K} → page 1 (sketch)`)
-const kfBuf = [sketch]
 for (let k = 2; k <= K; k++) {
   const page = kfPage[k - 1]
+  if (k === 2 && preflight) {
+    fs.writeFileSync(frameFile(page), preflight)
+    kfBuf.push(preflight)
+    writeManifestFromDisk()
+    log(`keyframe 2/${K} → page ${page} (from preflight)`)
+    continue
+  }
   if (resume && fs.existsSync(frameFile(page))) {
     kfBuf.push(fs.readFileSync(frameFile(page)))
     log(`keyframe ${k}/${K} → page ${page} (exists, skipped)`)
