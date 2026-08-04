@@ -156,6 +156,33 @@ in-between with a frame-interpolation model (FILM/RIFE). Cheap way to get 16–2
 smooth frames — but interpolators produce ghosty cross-fades on sparse line art, so
 treat as an experiment, not a dependency.
 
+### Approach 5 — Vector-stroke LLM animation (validated prototype)
+Skip image generation entirely: capture the drawing as vector strokes (the
+canvas already produces them), have an **LLM output per-frame geometric
+transforms** (translate/rotate/scale per stroke group, plus added/removed
+effect strokes like splashes and ripples), and re-render every frame from the
+stroke data with the same brush.
+
+- **Perfect style fidelity by construction** — frames are the user's own
+  strokes; drift is impossible. Boil = control-point jitter, free.
+- **Cheap and fast:** one text-LLM call (~20s, cents) yields all frames;
+  frames themselves render client-side instantly. Fully vector → infinite
+  resolution for print.
+- **Bench note (2026-08-04, claude-4.5-sonnet via Replicate):** given 6 duck
+  strokes + "dives under the water", produced a correct 8-frame beak-first
+  dive: grouped body strokes under one transform, fixed waterline, invented
+  splash/ripple/bubble strokes, even pacing. One gotcha: LLMs reason about
+  rotation in math convention (positive = counterclockwise) — the renderer
+  must negate for y-down canvases.
+- **Limits:** rigid-ish motion only (transforms can't bend a neck); complex
+  drawings with many strokes get token-heavy; motion quality depends on the
+  LLM's spatial reasoning. Best for simple doodles — which is the product's
+  sweet spot. Candidate free-tier engine, with image-gen approaches as the
+  quality tier.
+- Prompt frames each output frame **independently relative to frame 1**
+  (never chained) — the vector analog of pair-pinning; accumulation errors
+  are impossible.
+
 ### Approach 4 — Image-to-video (v2 premium)
 Start-image + motion-prompt video models (Kling / Veo / WAN class) → extract ~12
 evenly spaced frames. Great motion physics, but weakest at *preserving pencil-sketch

@@ -125,3 +125,75 @@ h1 {
   color: #8f8877;
   font-style: italic;
 }
+
+.mode-toggle {
+  border: 1px solid #d8d2c4;
+  background: #fff;
+  border-radius: 4px;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+
+.draw-pad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  width: min(480px, 90vw);
+}
+
+.draw-canvas {
+  width: 100%;
+  aspect-ratio: 1;
+  background: #fff;
+  border: 1px solid #d8d2c4;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(60, 50, 30, 0.12);
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.draw-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  color: #6d6653;
+}
+
+.draw-tools button {
+  border: 1px solid #d8d2c4;
+  background: #fff;
+  border-radius: 4px;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.draw-tools button:disabled { opacity: 0.4; cursor: default; }
+
+.stroke-count { font-style: italic; }
+
+.motion-input {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #d8d2c4;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.animate-btn {
+  background: #c0392b !important;
+  color: #fff;
+  border-color: #c0392b !important;
+}
+
+.draw-error {
+  color: #c0392b;
+  font-size: 0.8rem;
+  max-width: 100%;
+  word-break: break-word;
+}

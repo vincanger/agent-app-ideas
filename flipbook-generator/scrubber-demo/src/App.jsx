@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import DrawCanvas from './DrawCanvas.jsx'
 import './App.css'
 
 // NOTE: the model was asked for 4 cols x 3 rows but returned 3 cols x 4 rows —
@@ -226,6 +227,7 @@ export default function App() {
   const [pos, setPos] = useState(0) // float page position
   const [playing, setPlaying] = useState(false)
   const [wobble, setWobble] = useState(1.5) // boil amplitude in px (0 = off)
+  const [mode, setMode] = useState('view') // 'view' | 'draw'
 
   const stripRef = useRef(null)
   const posRef = useRef(0)
@@ -346,6 +348,24 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [pages, setPosition, stopAnimations, togglePlay])
 
+  const onAnimated = useCallback((vectorPages) => {
+    setAspect(1)
+    posRef.current = 0
+    setPos(0)
+    setPages(vectorPages)
+    setMode('view')
+  }, [])
+
+  if (mode === 'draw') {
+    return (
+      <div className="app">
+        <h1>flipbook scrubber</h1>
+        <button className="mode-toggle" onClick={() => setMode('view')}>← back to viewer</button>
+        <DrawCanvas onAnimated={onAnimated} />
+      </div>
+    )
+  }
+
   if (!pages) return <div className="loading">slicing grids…</div>
 
   const current = Math.round(pos)
@@ -355,6 +375,7 @@ export default function App() {
   return (
     <div className="app">
       <h1>flipbook scrubber</h1>
+      <button className="mode-toggle" onClick={() => { stopAnimations(); setMode('draw') }}>✏️ draw a new one</button>
       <div className="page-view" style={{ aspectRatio: aspect }}>
         <BoilCanvas src={pages[current].src} amp={wobble} />
         <div className="page-num">{current + 1} / {pages.length}</div>
