@@ -235,9 +235,23 @@ export default function App() {
   const playDir = useRef(1)
 
   useEffect(() => {
-    // in-between grid is optional — keyframes-only flipbook until it exists
-    Promise.all([sliceGrid('/keyframes.png'), sliceGrid('/inbetweens.png').catch(() => null)])
-      .then(([keys, betweens]) => {
+    // Prefer individual frames from the sequential pipeline (public/frames/),
+    // fall back to slicing the grid images.
+    fetch('/frames/manifest.json')
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null)
+      .then(async (manifest) => {
+        if (manifest?.frames?.length) {
+          const first = await loadImage(manifest.frames[0])
+          setAspect(first.naturalWidth / first.naturalHeight)
+          setPages(manifest.frames.map((src, i) => ({ src, keyIndex: i })))
+          return
+        }
+        // in-between grid is optional — keyframes-only flipbook until it exists
+        const [keys, betweens] = await Promise.all([
+          sliceGrid('/keyframes.png'),
+          sliceGrid('/inbetweens.png').catch(() => null),
+        ])
         setAspect(keys.aspect)
         setPages(betweens
           ? interleave(keys.frames, betweens.frames)

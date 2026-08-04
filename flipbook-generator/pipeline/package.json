@@ -1,0 +1,12 @@
+{
+  "name": "flipbook-pipeline",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node generate.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "replicate": "^1.0.1"
+  }
+}
