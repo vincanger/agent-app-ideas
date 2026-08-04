@@ -82,12 +82,32 @@ Then slice the grid into frames server-side.
   gutters rather than trusting exact cell math; normalize each cell to the canvas
   size). Occasionally the model returns 7 or 9 cells — detect and retry, or pad by
   duplicating the last frame.
-- **Getting to 12–16 keyframes:** a 3×4 grid gives 12 per call; for 16+, **chain
-  grids** — call 2's prompt includes the last frame of call 1 as its starting image
-  ("continue this animation, frames 13–24: ..."), same style reference throughout.
-  Two chained grid calls = 24 keyframes for ~2× the cost, still cheap. Don't push
-  cell counts much past 3×4 per call: at 1024² output a 4×4 grid means 256² cells,
-  and line quality starts to suffer — more grids beats denser grids.
+- **Getting to 12–16+ keyframes** (validated need — see bench note below): the
+  generation ladder is
+  1. **Denser grid, one call:** ask for 3×4 = 12 frames. At 1024² that's ~341×256
+     cells — fine for simple line art; bench before assuming. Don't push past 3×4
+     (4×4 = 256² cells, line quality suffers).
+  2. **In-between call (preferred second step):** feed the *entire* first grid back
+     and ask for a grid of the in-between frames ("draw the frame halfway between
+     each adjacent pair, same style"). Interleave → 2N−1 frames (8 → 15, 12 → 23).
+     Because the model sees the whole sequence as reference, consistency stays
+     high, and it *subdivides* existing motion rather than inventing new action.
+  3. Boil variants ×2–3 (§6) on the result → 30–45+ pages from two model calls.
+
+  **Chained continuation grids** ("continue this animation, frames 13–24", passing
+  the last frame as the new start) are reserved for *"continue the story"* — new
+  motion — not for densifying: a continuation call tends to invent fresh action
+  instead of subdividing the arc.
+
+> **Bench note (2026-08-04, Gemini/Nano Banana, real test):** the example prompt
+> ("duck dives under the water") + a 2×4 grid request produced a genuinely good
+> result: consistent duck across all 8 cells, matching line style, well-paced arc
+> (dive → splash → submerged → surface ripples), and the model drew clean cell
+> border lines — which makes gutter-detection slicing trivial. It even rendered the
+> submerged duck in lighter gray line weight (readable "underwater" storytelling —
+> keep, don't fight it). Confirmed limitation: 8 keyframes leave big pose jumps
+> (e.g. frames 2→3, 4→5) that boil variants cannot bridge — hence the in-between
+> call in the ladder above.
 
 ### Approach 2 — Iterative edit chain (quality tier / fallback)
 frame[n+1] = imageEdit(frame[n], "advance the animation one step: <motion>, step
