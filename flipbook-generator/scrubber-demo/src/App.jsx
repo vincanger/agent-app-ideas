@@ -338,15 +338,17 @@ export default function App() {
   }, [playing, pages, setPosition, stopAnimations])
 
   useEffect(() => {
-    if (!pages) return
+    if (!pages || mode !== 'view') return
     const onKey = (e) => {
+      // never hijack keys while the user is typing
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return
       if (e.key === 'ArrowRight') { stopAnimations(); setPosition(Math.round(posRef.current) + 1, pages.length) }
       if (e.key === 'ArrowLeft') { stopAnimations(); setPosition(Math.round(posRef.current) - 1, pages.length) }
       if (e.key === ' ') { e.preventDefault(); togglePlay() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [pages, setPosition, stopAnimations, togglePlay])
+  }, [pages, mode, setPosition, stopAnimations, togglePlay])
 
   const onAnimated = useCallback((vectorPages) => {
     setAspect(1)
