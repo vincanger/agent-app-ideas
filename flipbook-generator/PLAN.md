@@ -94,6 +94,16 @@ Then slice the grid into frames server-side.
      high, and it *subdivides* existing motion rather than inventing new action.
   3. Boil variants ×2–3 (§6) on the result → 30–45+ pages from two model calls.
 
+  **Grid geometry:** cells must be **square** to match the square drawing canvas,
+  so the image aspect ratio must equal the column:row ratio (the 2×4-in-1:1 bench
+  result produced 512×256 cells — the model padded scenes wider than the sketch).
+  Models support fixed ratios only, so standardize: **4 cols × 3 rows requested at
+  4:3** → ~296² cells at 1K output, for both the keyframe call (12 frames) and the
+  in-between call (11 in-betweens + cell 12 repeats the final frame). One geometry
+  everywhere keeps the slicer dumb. Prompt must pin it: "12 equal-sized cells,
+  4 columns × 3 rows, thin margins." ~290² cells are fine for scrubbing but thin
+  for print — use 2K/4K output (Nano Banana Pro tier) or upscale at export.
+
   **Chained continuation grids** ("continue this animation, frames 13–24", passing
   the last frame as the new start) are reserved for *"continue the story"* — new
   motion — not for densifying: a continuation call tends to invent fresh action
