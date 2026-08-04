@@ -75,13 +75,31 @@ fs.mkdirSync(outDir, { recursive: true })
 const sketch = fs.readFileSync(sketchPath)
 const frameFile = (n) => path.join(outDir, `frame-${String(n).padStart(2, '0')}.png`)
 
+function writeManifest(count) {
+  fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify({
+    frames: Array.from({ length: count }, (_, i) => `/frames/frame-${String(i + 1).padStart(2, '0')}.png`),
+    motion,
+    model: MODEL,
+    mode: 'sequential-edit-chain',
+    total: N,
+    generatedAt: new Date().toISOString(),
+  }, null, 2))
+}
+
 // frame 1 = the sketch itself
 fs.writeFileSync(frameFile(1), sketch)
 console.log(`frame 01/${String(N).padStart(2, '0')}  (sketch)`)
 
-let prev = sketch
+// resume: skip frames that already exist on disk (--resume)
+let start = 2
+if (process.argv.includes('--resume')) {
+  while (start <= N && fs.existsSync(frameFile(start))) start++
+  if (start > 2) console.log(`resuming at frame ${start} (frames 2..${start - 1} already exist)`)
+}
+
+let prev = start > 2 ? fs.readFileSync(frameFile(start - 1)) : sketch
 const startedAt = Date.now()
-for (let n = 2; n <= N; n++) {
+for (let n = start; n <= N; n++) {
   const t0 = Date.now()
   const output = await replicate.run(MODEL, {
     input: {
@@ -93,16 +111,10 @@ for (let n = 2; n <= N; n++) {
   })
   const buf = await outputToBuffer(output)
   fs.writeFileSync(frameFile(n), buf)
+  writeManifest(n) // manifest tracks progress so partial runs are viewable/resumable
   prev = buf
   console.log(`frame ${String(n).padStart(2, '0')}/${String(N).padStart(2, '0')}  ${((Date.now() - t0) / 1000).toFixed(1)}s`)
 }
 
-const manifest = {
-  frames: Array.from({ length: N }, (_, i) => `/frames/frame-${String(i + 1).padStart(2, '0')}.png`),
-  motion,
-  model: MODEL,
-  mode: 'sequential-edit-chain',
-  generatedAt: new Date().toISOString(),
-}
-fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
+writeManifest(N)
 console.log(`\ndone: ${N} frames in ${((Date.now() - startedAt) / 1000).toFixed(0)}s → ${outDir}`)
