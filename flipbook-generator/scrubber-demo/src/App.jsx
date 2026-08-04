@@ -244,7 +244,9 @@ export default function App() {
         if (manifest?.frames?.length) {
           const first = await loadImage(manifest.frames[0])
           setAspect(first.naturalWidth / first.naturalHeight)
-          setPages(manifest.frames.map((src, i) => ({ src, keyIndex: i })))
+          // with many frames, thumbnail only every few pages to keep the strip readable
+          const step = Math.max(1, Math.round(manifest.frames.length / 12))
+          setPages(manifest.frames.map((src, i) => ({ src, keyIndex: i % step === 0 ? i : null })))
           return
         }
         // in-between grid is optional — keyframes-only flipbook until it exists

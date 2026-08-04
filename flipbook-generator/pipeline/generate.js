@@ -33,23 +33,29 @@ if (!sketchPath || !motion) {
   process.exit(1)
 }
 
-// Optional per-frame storyboard: JSON array of N-1 strings describing frames 2..N.
-// Without it, pacing relies on the generic "1/N increment" rule alone.
-const shots = shotlistPath ? JSON.parse(fs.readFileSync(shotlistPath, 'utf8')) : null
-if (shots && shots.length !== N - 1) {
-  console.error(`Shotlist has ${shots.length} entries; need ${N - 1} (frames 2..${N})`)
-  process.exit(1)
+// Optional storyboard: JSON array of story beats. If its length isn't exactly
+// N-1, the beats are stretched proportionally across frames 2..N, so one
+// storyboard works for any frame count.
+const beats = shotlistPath ? JSON.parse(fs.readFileSync(shotlistPath, 'utf8')) : null
+
+function shotFor(n) {
+  if (!beats) return null
+  if (N === 2) return beats[beats.length - 1]
+  const idx = Math.round(((n - 2) / (N - 2)) * (beats.length - 1))
+  return beats[idx]
 }
 
-const STYLE_RULES = `Rules: identical hand-drawn black-line pencil sketch style as the reference images; white background; no shading; no text; no borders; ONE single frame, not a grid or sequence.
+const STYLE_RULES = `STYLE — this is the most important rule: the drawing must look poorly drawn, because that is the artist's style. Match the FIRST image's exact line quality: wobbly, uneven, naive, quickly-scribbled amateur pencil lines, awkward proportions and all. DO NOT clean up, refine, smooth, straighten, or beautify anything. DO NOT improve the anatomy or the line work. Every frame must look like the same untrained hand drew it in the same hurried sitting as the FIRST image. If your frame looks more skillful than the FIRST image, it is wrong.
+Other rules: white background; no shading; no text; no borders or frame edges; ONE single frame, not a grid or sequence.
 The waterline stays at exactly the same height as in the reference images. The subject stays exactly the same size and same character design. When the subject is underwater, draw it in lighter gray lines.`
 
 function framePrompt(n) {
-  const shot = shots ? `\nThis frame shows: ${shots[n - 2]}` : ''
+  const shot = shotFor(n)
   return `Animation: ${motion}
 You are drawing frame ${n} of a ${N}-frame flipbook animation.
-The FIRST attached image is the previous frame (frame ${n - 1}). The SECOND attached image is frame 1, the original sketch — match its exact drawing style and character design.
-Draw the next frame: advance the motion by exactly 1/${N} of the total action — a small, even step past the previous frame. Do not finish the action early; the motion completes exactly at frame ${N}.${shot}
+The FIRST attached image is frame 1: the original sketch. It is the ONLY style authority.
+The SECOND attached image is the previous frame (frame ${n - 1}): use it ONLY for pose and motion continuity, NOT for style.
+Draw the next frame: advance the motion by exactly 1/${N} of the total action — a very small, even step past the previous frame. Do not finish the action early; the motion completes exactly at frame ${N}.${shot ? `\nThis part of the motion: ${shot}` : ''}
 ${STYLE_RULES}`
 }
 
@@ -80,7 +86,7 @@ for (let n = 2; n <= N; n++) {
   const output = await replicate.run(MODEL, {
     input: {
       prompt: framePrompt(n),
-      image_input: [prev, sketch],
+      image_input: [sketch, prev],
       aspect_ratio: '1:1',
       output_format: 'png',
     },
