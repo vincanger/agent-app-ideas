@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { CANVAS_SIZE, drawSmooth, simplify, framesFromOps, renderFrame } from './vector.js'
+import { CANVAS_SIZE, drawSmooth, simplify } from './vector.js'
 
 // Minimal drawing pad: one black pencil, undo, clear. Strokes are the data —
 // the PNG is just a view of them.
@@ -9,7 +9,6 @@ export default function DrawCanvas({ onAnimated }) {
   const activeRef = useRef(null)
   const [strokeCount, setStrokeCount] = useState(0)
   const [motion, setMotion] = useState('')
-  const [frames, setFrames] = useState(12)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
 
@@ -71,16 +70,10 @@ export default function DrawCanvas({ onAnimated }) {
       const res = await fetch('/api/animate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ strokes: strokesRef.current, motion, frames }),
+        body: JSON.stringify({ image: canvasRef.current.toDataURL('image/png'), motion }),
       })
       if (!res.ok) throw new Error(`animate failed: ${await res.text()}`)
-      const { frames: frameSpecs } = await res.json()
-      const pages = framesFromOps(strokesRef.current, frameSpecs)
-      onAnimated(pages.map((strokes, i) => ({
-        src: renderFrame(strokes),
-        keyIndex: i,
-        strokes, // kept so the viewer could re-render with vector boil later
-      })))
+      onAnimated(await res.json()) // sheet-pipeline manifest
     } catch (err) {
       setError(String(err.message ?? err))
     } finally {
@@ -114,14 +107,6 @@ export default function DrawCanvas({ onAnimated }) {
         disabled={busy}
       />
       <div className="draw-tools">
-        <label>
-          frames{' '}
-          <select value={frames} onChange={(e) => setFrames(Number(e.target.value))} disabled={busy}>
-            <option value={8}>8</option>
-            <option value={12}>12</option>
-            <option value={16}>16</option>
-          </select>
-        </label>
         <button className="animate-btn" onClick={animate} disabled={!canGo}>
           {busy ? 'animating…' : 'animate ▶'}
         </button>

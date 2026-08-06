@@ -1,0 +1,22 @@
+{
+  "frames": [
+    "/frames/frame-01.png",
+    "/frames/frame-02.png",
+    "/frames/frame-03.png",
+    "/frames/frame-04.png",
+    "/frames/frame-05.png",
+    "/frames/frame-06.png",
+    "/frames/frame-07.png",
+    "/frames/frame-08.png",
+    "/frames/frame-09.png",
+    "/frames/frame-10.png",
+    "/frames/frame-11.png",
+    "/frames/frame-12.png"
+  ],
+  "motion": "the duck dives under the water and resurfaces",
+  "model": "user-provided 4x3 sprite sheet",
+  "mode": "sheet-slice",
+  "total": 12,
+  "keyframes": 12,
+  "generatedAt": "2026-08-05T00:00:00.000Z"
+}

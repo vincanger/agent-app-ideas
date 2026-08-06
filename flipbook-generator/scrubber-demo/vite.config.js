@@ -1,12 +1,11 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import fs from 'node:fs'
 import path from 'node:path'
 
-// Claude hosted on Replicate — reuses the same REPLICATE_API_TOKEN as the
-// image pipeline (../pipeline/.env). Swap to the Anthropic SDK directly if an
-// ANTHROPIC_API_KEY becomes available; the prompt/response contract is the same.
-const LLM_MODEL = 'anthropic/claude-4.5-sonnet'
+// /api/animate runs the sprite-sheet pipeline (../pipeline/sheetlib.js):
+// drawn sketch -> keyframe sheet -> in-between sheet -> sliced frames in
+// public/frames. Uses the same REPLICATE_API_TOKEN as the CLI (pipeline/.env).
 
 function loadReplicateToken() {
   if (process.env.REPLICATE_API_TOKEN) return process.env.REPLICATE_API_TOKEN
@@ -18,39 +17,75 @@ function loadReplicateToken() {
   return null
 }
 
-function animatePrompt(strokes, motion, N) {
-  return `You are a keyframe animator for a hand-drawn flipbook.
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = ''
+    req.on('data', (chunk) => { body += chunk })
+    req.on('end', () => resolve(body))
+    req.on('error', reject)
+  })
+}
 
-The drawing below is frame 1 of a ${N}-frame flipbook on a 512x512 canvas
-(origin top-left, x right, y down). It is represented as vector strokes —
-polylines of [x,y] points, each with an id:
+// Frame-editor endpoints: reorder pages / overwrite a single frame PNG.
+// The manifest's frames array is the page order — files never move on disk.
+function framesEndpoint() {
+  const framesDir = path.resolve(import.meta.dirname, 'public/frames')
+  const manifestPath = path.join(framesDir, 'manifest.json')
+  const readManifest = () => JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  const writeManifest = (m) => { fs.writeFileSync(manifestPath, JSON.stringify(m, null, 2)); return m }
+  const FRAME_URL = /^\/frames\/frame-\d+\.png(\?v=\d+)?$/
+  const FRAME_FILE = /^frame-\d+\.png$/
 
-${JSON.stringify(strokes)}
+  return {
+    name: 'frames-endpoint',
+    configureServer(server) {
+      server.middlewares.use('/api/frames/order', async (req, res) => {
+        if (req.method !== 'POST') { res.statusCode = 405; return res.end('POST only') }
+        try {
+          const { frames } = JSON.parse(await readBody(req))
+          if (!Array.isArray(frames) || !frames.length || !frames.every((f) => FRAME_URL.test(f))) {
+            throw new Error('frames must be a non-empty array of /frames/frame-NN.png urls')
+          }
+          const manifest = writeManifest({
+            ...readManifest(),
+            frames,
+            total: frames.length,
+            generatedAt: new Date().toISOString(),
+          })
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(manifest))
+        } catch (err) {
+          res.statusCode = 500
+          res.end(String(err.message ?? err))
+        }
+      })
 
-Animation: ${motion}
-
-Produce frames 2..${N} (${N - 1} frames). Each frame advances the motion by an
-equal 1/${N} increment; the motion completes exactly at frame ${N}. Describe each
-frame INDEPENDENTLY, always relative to the ORIGINAL frame-1 strokes above
-(never relative to a previous frame you generated):
-
-- "ops": for each original stroke that appears in the frame, a transform
-  {"id", "translate":[dx,dy], "rotate":<degrees>, "pivot":[x,y],
-  "scale":<factor>}. Rotation uses standard math convention: positive =
-  counterclockwise. Omit fields that are identity. A stroke with no op and
-  not removed stays exactly as in frame 1.
-- "remove": ids of original strokes absent from this frame.
-- "add": new strokes drawn for this frame, e.g. splashes, ripples, bubbles:
-  {"id":"a1","pts":[[x,y],...]}. Keep them simple (3-10 points), in the same
-  naive hand-drawn spirit. List each frame's added strokes in full.
-
-Think about the physics: which strokes move together as the subject (give them
-the same transform), which are background and stay fixed, where effects appear
-and fade. Keep everything inside the canvas.
-
-Respond with ONLY a JSON object, no prose, no code fences:
-{"frames":[{"ops":[...],"remove":[...],"add":[...]}, ...]}
-with exactly ${N - 1} entries in "frames".`
+      server.middlewares.use('/api/frames/save', async (req, res) => {
+        if (req.method !== 'POST') { res.statusCode = 405; return res.end('POST only') }
+        try {
+          const { file, image } = JSON.parse(await readBody(req))
+          if (!FRAME_FILE.test(file ?? '')) throw new Error('bad frame filename')
+          const b64 = image?.match(/^data:image\/png;base64,(.+)$/)?.[1]
+          if (!b64) throw new Error('image must be a PNG data URL')
+          fs.writeFileSync(path.join(framesDir, file), Buffer.from(b64, 'base64'))
+          // bump the edited file's cache-busting version everywhere it appears
+          const prev = readManifest()
+          const v = Date.now()
+          const manifest = writeManifest({
+            ...prev,
+            frames: prev.frames.map((u) =>
+              u.split('?')[0] === `/frames/${file}` ? `/frames/${file}?v=${v}` : u),
+            generatedAt: new Date().toISOString(),
+          })
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(manifest))
+        } catch (err) {
+          res.statusCode = 500
+          res.end(String(err.message ?? err))
+        }
+      })
+    },
+  }
 }
 
 function animateEndpoint() {
@@ -61,41 +96,26 @@ function animateEndpoint() {
         if (req.method !== 'POST') { res.statusCode = 405; return res.end('POST only') }
         const token = loadReplicateToken()
         if (!token) { res.statusCode = 500; return res.end('REPLICATE_API_TOKEN not found (pipeline/.env)') }
+        process.env.REPLICATE_API_TOKEN = token
         let body = ''
         req.on('data', (chunk) => { body += chunk })
         req.on('end', async () => {
           try {
-            const { strokes, motion, frames } = JSON.parse(body)
-            const prediction = await fetch(
-              `https://api.replicate.com/v1/models/${LLM_MODEL}/predictions`,
-              {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                  Prefer: 'wait=60',
-                },
-                body: JSON.stringify({
-                  input: {
-                    prompt: animatePrompt(strokes, motion, frames),
-                    max_tokens: 16000,
-                  },
-                }),
-              },
-            ).then((r) => r.json())
+            const { image, motion } = JSON.parse(body)
+            const b64 = image?.match(/^data:image\/png;base64,(.+)$/)?.[1]
+            if (!b64) throw new Error('image must be a PNG data URL')
+            if (!motion?.trim()) throw new Error('motion is required')
 
-            if (prediction.error) throw new Error(prediction.error)
-            let output = Array.isArray(prediction.output)
-              ? prediction.output.join('')
-              : String(prediction.output ?? '')
-            // tolerate accidental fences/prose around the JSON
-            const start = output.indexOf('{')
-            const end = output.lastIndexOf('}')
-            if (start === -1 || end === -1) throw new Error(`no JSON in LLM output: ${output.slice(0, 200)}`)
-            const parsed = JSON.parse(output.slice(start, end + 1))
-            if (!Array.isArray(parsed.frames)) throw new Error('LLM output missing frames array')
+            const { buildFlipbook } = await import('../pipeline/sheetlib.js')
+            const manifest = await buildFlipbook({
+              sketch: Buffer.from(b64, 'base64'),
+              motion: motion.trim(),
+              outDir: path.resolve(import.meta.dirname, 'public/frames'),
+              sheetsDir: path.resolve(import.meta.dirname, '../pipeline/sheets'),
+              log: (msg) => console.log('[animate]', msg),
+            })
             res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify(parsed))
+            res.end(JSON.stringify(manifest))
           } catch (err) {
             console.error('[animate]', err)
             res.statusCode = 500
@@ -108,5 +128,5 @@ function animateEndpoint() {
 }
 
 export default defineConfig({
-  plugins: [react(), animateEndpoint()],
+  plugins: [react(), animateEndpoint(), framesEndpoint()],
 })

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DrawCanvas from './DrawCanvas.jsx'
+import FramesEditor from './FramesEditor.jsx'
 import './App.css'
 
 // NOTE: the model was asked for 4 cols x 3 rows but returned 3 cols x 4 rows —
@@ -227,14 +228,23 @@ export default function App() {
   const [pos, setPos] = useState(0) // float page position
   const [playing, setPlaying] = useState(false)
   const [wobble, setWobble] = useState(1.5) // boil amplitude in px (0 = off)
-  const [mode, setMode] = useState('view') // 'view' | 'draw'
+  const [mode, setMode] = useState('view') // 'view' | 'draw' | 'edit'
+  const [manifest, setManifest] = useState(null) // present when frames come from the pipeline
 
   const stripRef = useRef(null)
   const posRef = useRef(0)
   const velRef = useRef(0)
   const lastMove = useRef(null)
   const rafRef = useRef(null)
-  const playDir = useRef(1)
+
+  const applyManifest = useCallback(async (manifest) => {
+    const first = await loadImage(manifest.frames[0])
+    setAspect(first.naturalWidth / first.naturalHeight)
+    setManifest(manifest)
+    // with many frames, thumbnail only every few pages to keep the strip readable
+    const step = Math.max(1, Math.round(manifest.frames.length / 12))
+    setPages(manifest.frames.map((src, i) => ({ src, keyIndex: i % step === 0 ? i : null })))
+  }, [])
 
   useEffect(() => {
     // Prefer individual frames from the sequential pipeline (public/frames/),
@@ -244,11 +254,7 @@ export default function App() {
       .catch(() => null)
       .then(async (manifest) => {
         if (manifest?.frames?.length) {
-          const first = await loadImage(manifest.frames[0])
-          setAspect(first.naturalWidth / first.naturalHeight)
-          // with many frames, thumbnail only every few pages to keep the strip readable
-          const step = Math.max(1, Math.round(manifest.frames.length / 12))
-          setPages(manifest.frames.map((src, i) => ({ src, keyIndex: i % step === 0 ? i : null })))
+          await applyManifest(manifest)
           return
         }
         // in-between grid is optional — keyframes-only flipbook until it exists
@@ -261,7 +267,7 @@ export default function App() {
           ? interleave(keys.frames, betweens.frames)
           : keys.frames.map((src, i) => ({ src, keyIndex: i })))
       })
-  }, [])
+  }, [applyManifest])
 
   const setPosition = useCallback((p, n) => {
     const clamped = Math.max(0, Math.min(n - 1, p))
@@ -320,18 +326,19 @@ export default function App() {
     else setPosition(Math.round(posRef.current), pages.length)
   }, [pages, setPosition])
 
-  // --- play button: ping-pong at ~12 pages/sec ---
+  // --- play button: forward loop at ~12 pages/sec ---
   const togglePlay = useCallback(() => {
     if (playing) { stopAnimations(); return }
     setPlaying(true)
     let last = performance.now()
+    // unclamped accumulator: setPosition clamps to length-1, which would
+    // otherwise pin the loop just below the wrap threshold at the last page
+    let acc = posRef.current
     const step = (now) => {
       const dt = (now - last) / 1000
       last = now
-      let next = posRef.current + playDir.current * 12 * dt
-      if (next >= pages.length - 1) { next = pages.length - 1; playDir.current = -1 }
-      if (next <= 0) { next = 0; playDir.current = 1 }
-      setPosition(next, pages.length)
+      acc = (acc + 12 * dt) % pages.length
+      setPosition(acc, pages.length)
       rafRef.current = requestAnimationFrame(step)
     }
     rafRef.current = requestAnimationFrame(step)
@@ -350,13 +357,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [pages, mode, setPosition, stopAnimations, togglePlay])
 
-  const onAnimated = useCallback((vectorPages) => {
-    setAspect(1)
+  const onAnimated = useCallback(async (manifest) => {
+    await applyManifest(manifest)
     posRef.current = 0
     setPos(0)
-    setPages(vectorPages)
     setMode('view')
-  }, [])
+  }, [applyManifest])
 
   if (mode === 'draw') {
     return (
@@ -364,6 +370,25 @@ export default function App() {
         <h1>flipbook scrubber</h1>
         <button className="mode-toggle" onClick={() => setMode('view')}>← back to viewer</button>
         <DrawCanvas onAnimated={onAnimated} />
+      </div>
+    )
+  }
+
+  if (mode === 'edit' && manifest) {
+    return (
+      <div className="app">
+        <h1>flipbook scrubber</h1>
+        <FramesEditor
+          manifest={manifest}
+          onDone={async (m) => {
+            if (m) {
+              await applyManifest(m)
+              posRef.current = 0
+              setPos(0)
+            }
+            setMode('view')
+          }}
+        />
       </div>
     )
   }
@@ -377,7 +402,12 @@ export default function App() {
   return (
     <div className="app">
       <h1>flipbook scrubber</h1>
-      <button className="mode-toggle" onClick={() => { stopAnimations(); setMode('draw') }}>✏️ draw a new one</button>
+      <div className="mode-row">
+        <button className="mode-toggle" onClick={() => { stopAnimations(); setMode('draw') }}>✏️ draw a new one</button>
+        {manifest && (
+          <button className="mode-toggle" onClick={() => { stopAnimations(); setMode('edit') }}>🛠 edit frames</button>
+        )}
+      </div>
       <div className="page-view" style={{ aspectRatio: aspect }}>
         <BoilCanvas src={pages[current].src} amp={wobble} />
         <div className="page-num">{current + 1} / {pages.length}</div>

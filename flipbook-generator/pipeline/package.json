@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "generate": "node generate.js"
+    "generate": "node generate.js",
+    "sheets": "node sheets.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
