@@ -216,12 +216,14 @@ const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const GROUND = [20, 33, 58];     // navy
 const LIGHT  = [154, 172, 208];  // periwinkle
 const GOLD   = [220, 175, 78];
+const SHADE  = [52, 70, 106];    // canopy shade — dimmer than light, softer than ground
 
 /* tunable properties — the panel below the frame */
 const props = {
   'gold start': { value: 0.52, min: 0, max: 1, step: 0.01, fmt: v => v.toFixed(2) },
   'gold end':   { value: 0.73, min: 0, max: 1, step: 0.01, fmt: v => v.toFixed(2) },
   'breeze':     { value: 0.50, min: 0, max: 1, step: 0.01, fmt: v => v.toFixed(2) },
+  'shade':      { value: 0.55, min: 0, max: 1, step: 0.01, fmt: v => v.toFixed(2) },
   'dapple':     { value: 1.00, min: 0.4, max: 2, step: 0.01, fmt: v => v.toFixed(2), rebuild: true },
   'grain':      { value: 4,    min: 2, max: 9, step: 1, fmt: v => `${v}px`, rebuild: true },
 };
@@ -244,6 +246,16 @@ function hash(n) {
   return s - Math.floor(s);
 }
 function hash2(x, y) { return hash(x * 157.31 + y * 12.9898); }
+
+/* one octave of bilinear value noise */
+function vnoise(x, y, seed) {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix + seed, iy), b = hash2(ix + 1 + seed, iy);
+  const c = hash2(ix + seed, iy + 1), d = hash2(ix + 1 + seed, iy + 1);
+  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+}
 
 /* 8×8 Bayer matrix, normalized to [0,1) */
 const BAYER = (() => {
@@ -465,8 +477,10 @@ function render(t) {
     }
   }
 
-  // drifting undergrowth noise + dithered quantization into flat tones
+  // drifting undergrowth noise + canopy shade + dithered quantization
   const g1 = P('gold start'), g2 = P('gold end');
+  const shadeAmt = P('shade');
+  const drift = t * (0.03 + 0.12 * P('breeze'));  // shade clouds cross with the wind
   const nT = t * 0.35;
   const nI = Math.floor(nT), nF = nT - nI;
   const data = img.data;
@@ -489,7 +503,16 @@ function render(t) {
       const nb = n00b + (n10b - n00b) * sx + (n01b - n00b) * sy + (n00b - n10b - n01b + n11b) * sx * sy;
       const noise = na + (nb - na) * nF;
 
-      let I = Math.max(0, field[idx]) + noise * 0.26 - 0.10;
+      // canopy shade — big, slow clouds of leaves crossing overhead,
+      // a different material than the light: dimmer, larger, unhurried
+      let S = 0;
+      if (shadeAmt > 0) {
+        const raw = (vnoise(x * 0.045 - drift, y * 0.09, 501)
+                   + 0.5 * vnoise(x * 0.09 - drift * 1.7, y * 0.18, 733)) / 1.5;
+        S = shadeAmt * Math.min(1, Math.max(0, (raw - 0.32) * 2.1));
+      }
+
+      let I = Math.max(0, field[idx]) + noise * 0.26 - 0.10 - S * S * 0.55;
       const bay = BAYER[(y & 7) * 8 + (x & 7)] - 0.5;
 
       let col = GROUND;
@@ -497,6 +520,8 @@ function render(t) {
         col = LIGHT;
         const Ig = I + bay * 0.3;
         if (Ig > g1 && Ig < g2) col = GOLD;
+      } else if (S + bay * 0.5 > 0.52) {
+        col = SHADE;
       }
       const o = idx * 4;
       data[o] = col[0]; data[o + 1] = col[1]; data[o + 2] = col[2]; data[o + 3] = 255;
@@ -554,7 +579,7 @@ function buildPanel() {
   }
 }
 
-const PARAM_KEYS = { 'gold start': 'g1', 'gold end': 'g2', 'breeze': 'breeze', 'dapple': 'dapple', 'grain': 'grain' };
+const PARAM_KEYS = { 'gold start': 'g1', 'gold end': 'g2', 'breeze': 'breeze', 'shade': 'shade', 'dapple': 'dapple', 'grain': 'grain' };
 let urlTimer = null;
 function syncUrl() {
   clearTimeout(urlTimer);

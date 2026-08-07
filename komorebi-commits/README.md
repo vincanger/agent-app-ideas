@@ -39,7 +39,8 @@ written into the URL — a shared link reproduces your exact tuning:
 | property | what it does |
 |---|---|
 | `gold start` / `gold end` | the intensity band that renders gold — slide it to rim the patches, fill their cores, or remove gold entirely |
-| `breeze` | wind strength: sway amplitude, speed, and flicker |
+| `breeze` | wind strength: sway amplitude, speed, and flicker — also how fast the shade clouds cross |
+| `shade` | canopy shade: large slow clouds of leaf-shadow in a fourth mid-blue tone that fill the dark ground and erode the light as they pass over it |
 | `dapple` | how far each day's light spreads |
 | `grain` | pixel size of the dither, 2–9px |
 
@@ -59,8 +60,11 @@ written into the URL — a shared link reproduces your exact tuning:
 Canvas 2D at field resolution (viewport ÷ grain). Each active day splats a
 quadratic radial kernel into a `Float32Array` intensity field; wind is layered
 sinusoids with a shared gust envelope and per-day deterministic phase jitter.
-A drifting octave of value noise seeds the dark ground with speckle. Per pixel,
-intensity + Bayer threshold picks ground vs light, and the gold band claims
-intensities between `gold start` and `gold end`. The ImageData is drawn 1:1 and
+A drifting octave of value noise seeds the dark ground with speckle, and a
+second, much coarser two-octave noise field — advected sideways with the
+breeze — forms the canopy shade: it subtracts from the light where it passes
+and dithers into its own mid-blue tone over bare ground. Per pixel,
+intensity + Bayer threshold picks ground vs shade vs light, and the gold band
+claims intensities between `gold start` and `gold end`. The ImageData is drawn 1:1 and
 upscaled with `image-rendering: pixelated`. The eclipse subtracts a second,
 offset kernel per day — a bite of moon in every pinhole.
