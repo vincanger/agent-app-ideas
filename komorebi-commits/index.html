@@ -53,6 +53,7 @@
   }
 
   .frame {
+    margin-top: 64px;
     border: 1px solid var(--line);
     padding: 10px;
     background: var(--page);
@@ -103,7 +104,7 @@
   }
 
   .about {
-    margin-top: 64px;
+    margin-top: 84px;
     max-width: 640px;
     padding: 0 20px;
   }
@@ -517,6 +518,31 @@ function render(t) {
   const g1 = P('gold start'), g2 = P('gold end');
   const shadeAmt = P('shade');
   const drift = t * (0.03 + 0.12 * P('breeze'));  // shade clouds cross with the wind
+
+  // canopy shade field: domain-warped three-octave fBm, computed on a
+  // coarse subgrid then sampled bilinearly per pixel — organic cloud
+  // shapes instead of the blocky look of raw bilinear noise
+  const SSTEP = 3;
+  const sgw = Math.ceil(fw / SSTEP) + 2, sgh = Math.ceil(fh / SSTEP) + 2;
+  let shadeGrid = null;
+  if (shadeAmt > 0) {
+    shadeGrid = new Float32Array(sgw * sgh);
+    for (let gy = 0; gy < sgh; gy++) {
+      const y = gy * SSTEP;
+      for (let gx = 0; gx < sgw; gx++) {
+        const x = gx * SSTEP;
+        const wx = vnoise(x * 0.026 - drift * 0.6, y * 0.052, 911);
+        const wy = vnoise(x * 0.026 + 37 - drift * 0.45, y * 0.052, 977);
+        const px = x * 0.045 - drift + (wx - 0.5) * 9;
+        const py = y * 0.09 + (wy - 0.5) * 7 + drift * 0.2;
+        const raw = (vnoise(px, py, 501)
+                   + 0.5 * vnoise(px * 2.1, py * 2.1, 733)
+                   + 0.25 * vnoise(px * 4.2, py * 4.2, 877)) / 1.75;
+        shadeGrid[gy * sgw + gx] = Math.min(1, Math.max(0, (raw - 0.36) * 2.0));
+      }
+    }
+  }
+
   const nT = t * 0.35;
   const nI = Math.floor(nT), nF = nT - nI;
   const data = img.data;
@@ -539,13 +565,16 @@ function render(t) {
       const nb = n00b + (n10b - n00b) * sx + (n01b - n00b) * sy + (n00b - n10b - n01b + n11b) * sx * sy;
       const noise = na + (nb - na) * nF;
 
-      // canopy shade — big, slow clouds of leaves crossing overhead,
-      // a different material than the light: dimmer, larger, unhurried
+      // sample the canopy shade field bilinearly
       let S = 0;
-      if (shadeAmt > 0) {
-        const raw = (vnoise(x * 0.045 - drift, y * 0.09, 501)
-                   + 0.5 * vnoise(x * 0.09 - drift * 1.7, y * 0.18, 733)) / 1.5;
-        S = shadeAmt * Math.min(1, Math.max(0, (raw - 0.32) * 2.1));
+      if (shadeGrid) {
+        const sgx = x / SSTEP, sgy = y / SSTEP;
+        const six = sgx | 0, siy = sgy | 0;
+        const sfx = sgx - six, sfy = sgy - siy;
+        const s0 = siy * sgw + six;
+        const sA = shadeGrid[s0], sB = shadeGrid[s0 + 1];
+        const sC = shadeGrid[s0 + sgw], sD = shadeGrid[s0 + sgw + 1];
+        S = shadeAmt * (sA + (sB - sA) * sfx + (sC - sA) * sfy + (sA - sB - sC + sD) * sfx * sfy);
       }
 
       let I = Math.max(0, field[idx]) + noise * 0.26 - 0.10 - S * S * 0.55;
@@ -556,7 +585,7 @@ function render(t) {
         col = LIGHT;
         const Ig = I + bay * 0.3;
         if (Ig > g1 && Ig < g2) col = GOLD;
-      } else if (S + bay * 0.5 > 0.52) {
+      } else if (S + bay * 0.7 > 0.55) {
         col = SHADE;
       }
       const o = idx * 4;
