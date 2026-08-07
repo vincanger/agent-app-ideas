@@ -53,6 +53,12 @@ written into the URL — a shared link reproduces your exact tuning:
   sliver, and the light comes back.
 - **copy link** shares user + all property values; **save image** exports a
   framed PNG with the caption, chunky pixels intact.
+- **save gif** renders ~7 seconds of the breeze into an animated GIF that
+  loops seamlessly (it plays forward then backward). The encoder is
+  hand-rolled GIF89a — the image is already four flat tones, which is exactly
+  what GIF's palette wants, so the files stay small and pixel-perfect.
+- **save video** records 8 seconds via MediaRecorder — MP4 where the browser
+  supports it (Chrome, Safari), WebM otherwise.
 - Respects `prefers-reduced-motion` (still frame, properties still live).
 
 ## How it works

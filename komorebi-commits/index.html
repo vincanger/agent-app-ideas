@@ -103,13 +103,20 @@
   }
 
   .about {
-    margin-top: 30px;
+    margin-top: 64px;
     max-width: 640px;
     padding: 0 20px;
+  }
+  .about h2 {
+    font-size: 14px; font-weight: 400;
+    letter-spacing: 0.04em;
+    color: var(--ink-dim);
+    margin-bottom: 12px;
+  }
+  .about p {
     font-size: 12.5px; line-height: 1.75;
     color: var(--ink-faint);
   }
-  .about b { font-weight: 400; color: var(--ink-dim); }
   .about i { font-style: italic; }
 
   footer.ui {
@@ -187,17 +194,19 @@
   </div>
   <div class="caption" id="caption"></div>
   <div class="props" id="props"></div>
-  <p class="about">
-    <b>This is your GitHub contribution graph, redrawn as sunlight through a
-    tree.</b> Every day you committed code is a gap in the canopy — a patch of
-    light on the ground, bigger and brighter the more you shipped, with your
-    year running left to right across the frame. The wind keeps it moving:
-    patches sway and flicker in the breeze, and slow clouds of leaf-shadow
-    drift across, dimming the light as they pass. The sliders tune the scene —
-    how golden the light is, how hard the wind blows, how thick the canopy —
-    and the whole thing is drawn in flat dithered pixels, after the essay
-    <i>“dappled light”</i> by Jacky Zhao.
-  </p>
+  <div class="about">
+    <h2>This is your GitHub contribution graph, redrawn as sunlight through a tree.</h2>
+    <p>
+      Every day you committed code is a gap in the canopy — a patch of
+      light on the ground, bigger and brighter the more you shipped, with your
+      year running left to right across the frame. The wind keeps it moving:
+      patches sway and flicker in the breeze, and slow clouds of leaf-shadow
+      drift across, dimming the light as they pass. The sliders tune the scene —
+      how golden the light is, how hard the wind blows, how thick the canopy —
+      and the whole thing is drawn in flat dithered pixels, after the essay
+      <i>“dappled light”</i> by Jacky Zhao.
+    </p>
+  </div>
 </main>
 
 <div id="notice"></div>
@@ -211,6 +220,8 @@
   <div class="actions">
     <button id="btnShare">copy link</button>
     <button id="btnSave">save image</button>
+    <button id="btnGif">save gif</button>
+    <button id="btnVideo">save video</button>
   </div>
 </footer>
 
@@ -568,6 +579,7 @@ function frame(now) {
   if (now - lastFrame > 1000 / 30) { // 30fps is plenty for leaves
     lastFrame = now;
     render(t);
+    if (videoRec) videoRec.rctx.drawImage(canvas, 0, 0, videoRec.rc.width, videoRec.rc.height);
   }
   requestAnimationFrame(frame);
 }
@@ -689,6 +701,153 @@ document.getElementById('btnSave').addEventListener('click', () => {
   a.href = out.toDataURL('image/png');
   a.click();
   showToast('saved');
+});
+
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+/* ---------- animated GIF export ----------
+   The frame is already four flat colors, which is exactly what GIF
+   wants — so this is a small hand-rolled GIF89a encoder with a
+   4-entry palette. The loop plays forward then backward (ping-pong),
+   so it never visibly jumps. */
+
+const PALETTE = [GROUND, SHADE, LIGHT, GOLD];
+const R_TO_INDEX = { 20: 0, 52: 1, 154: 2, 220: 3 }; // red channel is unique per tone
+
+function exportScale() { return Math.max(1, Math.min(6, Math.round(cssW / fw))); }
+
+function frameIndices(scale) {
+  const w = fw * scale;
+  const out = new Uint8Array(w * fh * scale);
+  const d = img.data;
+  for (let y = 0; y < fh; y++) {
+    for (let x = 0; x < fw; x++) {
+      const ci = R_TO_INDEX[d[(y * fw + x) * 4]] || 0;
+      for (let sy = 0; sy < scale; sy++) {
+        const row = (y * scale + sy) * w + x * scale;
+        for (let sx = 0; sx < scale; sx++) out[row + sx] = ci;
+      }
+    }
+  }
+  return out;
+}
+
+function lzwEncode(indices, minCodeSize, out) {
+  const clear = 1 << minCodeSize, eoi = clear + 1;
+  let codeSize = minCodeSize + 1;
+  let nextCode = eoi + 1;
+  let table = new Map();
+  let acc = 0, accBits = 0;
+  const bytes = [];
+  const emit = (code) => {
+    acc |= code << accBits;
+    accBits += codeSize;
+    while (accBits >= 8) { bytes.push(acc & 0xff); acc >>= 8; accBits -= 8; }
+  };
+  emit(clear);
+  let prev = indices[0];
+  for (let i = 1; i < indices.length; i++) {
+    const k = indices[i];
+    const key = (prev << 8) | k;
+    const hit = table.get(key);
+    if (hit !== undefined) { prev = hit; continue; }
+    emit(prev);
+    if (nextCode === 4096) {
+      emit(clear);
+      table = new Map();
+      nextCode = eoi + 1;
+      codeSize = minCodeSize + 1;
+    } else {
+      if (nextCode >= (1 << codeSize)) codeSize++;
+      table.set(key, nextCode++);
+    }
+    prev = k;
+  }
+  emit(prev);
+  emit(eoi);
+  if (accBits > 0) bytes.push(acc & 0xff);
+  out.push(minCodeSize);
+  for (let i = 0; i < bytes.length; i += 255) {
+    const n = Math.min(255, bytes.length - i);
+    out.push(n);
+    for (let j = 0; j < n; j++) out.push(bytes[i + j]);
+  }
+  out.push(0);
+}
+
+let gifBusy = false;
+async function saveGif() {
+  if (gifBusy) return;
+  gifBusy = true;
+  showToast('rendering gif…');
+  await new Promise(r => setTimeout(r, 40));
+  try {
+    const scale = exportScale();
+    const w = fw * scale, h = fh * scale;
+    const dt = 0.08, nFwd = 45;                       // 3.6s forward, ping-ponged to ~7s
+    const t0 = REDUCED_MOTION ? 12.0 : (performance.now() - start) / 1000;
+    const frames = [];
+    for (let i = 0; i < nFwd; i++) {
+      render(t0 + i * dt);
+      frames.push(frameIndices(scale));
+      if (i % 8 === 7) await new Promise(r => setTimeout(r, 0));
+    }
+    for (let i = nFwd - 2; i > 0; i--) frames.push(frames[i]);
+    const out = [];
+    const u16 = (v) => { out.push(v & 0xff, (v >> 8) & 0xff); };
+    for (const ch of 'GIF89a') out.push(ch.charCodeAt(0));
+    u16(w); u16(h); out.push(0xF1, 0, 0);             // 4-color global palette
+    for (const c of PALETTE) out.push(c[0], c[1], c[2]);
+    out.push(0x21, 0xFF, 0x0B);                        // loop forever
+    for (const ch of 'NETSCAPE2.0') out.push(ch.charCodeAt(0));
+    out.push(3, 1, 0, 0, 0);
+    for (const f of frames) {
+      out.push(0x21, 0xF9, 4, 0x04); u16(8); out.push(0, 0);   // 80ms/frame
+      out.push(0x2C); u16(0); u16(0); u16(w); u16(h); out.push(0);
+      lzwEncode(f, 2, out);
+      await new Promise(r => setTimeout(r, 0));
+    }
+    out.push(0x3B);
+    downloadBlob(new Blob([new Uint8Array(out)], { type: 'image/gif' }), `komorebi-${meta.user || 'commits'}.gif`);
+    showToast('gif saved — loops back and forth, seamlessly');
+  } finally {
+    gifBusy = false;
+  }
+}
+document.getElementById('btnGif').addEventListener('click', saveGif);
+
+/* ---------- video export (mp4 where the browser can, else webm) ---------- */
+
+let videoRec = null;
+document.getElementById('btnVideo').addEventListener('click', () => {
+  if (videoRec) return;
+  const scale = exportScale();
+  const rc = document.createElement('canvas');
+  rc.width = fw * scale; rc.height = fh * scale;
+  const rctx = rc.getContext('2d');
+  rctx.imageSmoothingEnabled = false;
+  rctx.drawImage(canvas, 0, 0, rc.width, rc.height);
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  const mime = types.find(tp => MediaRecorder.isTypeSupported(tp));
+  const rec = new MediaRecorder(rc.captureStream(30), mime ? { mimeType: mime, videoBitsPerSecond: 8e6 } : undefined);
+  const chunks = [];
+  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  rec.onstop = () => {
+    videoRec = null;
+    const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+    downloadBlob(new Blob(chunks, { type: rec.mimeType }), `komorebi-${meta.user || 'commits'}.${ext}`);
+    showToast(`video saved (${ext})`);
+  };
+  videoRec = { rc, rctx };
+  rec.start();
+  showToast('recording 8 seconds of light…');
+  setTimeout(() => rec.stop(), 8000);
 });
 
 function showToast(msg) {
