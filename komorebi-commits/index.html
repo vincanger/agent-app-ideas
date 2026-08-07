@@ -388,6 +388,10 @@ function buildBlobs(days) {
       p3: hash(seed + 5) * Math.PI * 2,
       fj: 0.75 + hash(seed + 6) * 0.6,
       amp: 0.6 + hash(seed + 7) * 0.5,
+      // height in the canopy: busy days hang low (crisp, bright),
+      // light days sit high (soft, wide, dim) — penumbra grows with
+      // distance from the ground, like the post's U = f·a·b
+      depth: Math.min(1, 0.65 * (1 - v) + 0.35 * hash(seed + 9)),
     });
   }
 
@@ -450,7 +454,7 @@ function gustAt(t) {
 function blobCenter(b, t) {
   const breeze = P('breeze');
   const G = gustAt(t);
-  const swayAmp = b.amp * cellW * (0.25 + 1.5 * breeze) * (0.35 + 0.65 * G);
+  const swayAmp = b.amp * cellW * (0.25 + 1.5 * breeze) * (0.35 + 0.65 * G) * (0.75 + 0.5 * b.depth);
   const ts = t * (0.08 + 0.9 * breeze);
   return {
     x: (maxWeek() - 1 - b.week + 0.5 + b.jx) * cellW
@@ -474,11 +478,14 @@ function eclipseState(t) {
   return { c, dx: Math.cos(ang), dy: Math.sin(ang) * 0.7 };
 }
 
-/* splat one radial kernel into the field (weight may be negative) */
-function splat(cx, cy, r, amp) {
+/* splat one radial kernel into the field (weight may be negative).
+   `core` is the flat plateau fraction: a crisp low leaf has a wide
+   core and a steep rim; a high leaf is all penumbra (core 0). */
+function splat(cx, cy, r, amp, core) {
   const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(fw - 1, Math.ceil(cx + r));
   const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(fh - 1, Math.ceil(cy + r));
   const r2 = r * r;
+  const rim = 1 - core;
   for (let y = y0; y <= y1; y++) {
     const dy = y + 0.5 - cy;
     let row = y * fw;
@@ -486,8 +493,13 @@ function splat(cx, cy, r, amp) {
       const dx = x + 0.5 - cx;
       const d2 = (dx * dx + dy * dy) / r2;
       if (d2 >= 1) continue;
-      const w = 1 - d2;
-      field[row + x] += w * w * amp;
+      const d = Math.sqrt(d2);
+      let w = 1;
+      if (d > core) {
+        const u = (1 - d) / rim;
+        w = u * u * (3 - 2 * u);
+      }
+      field[row + x] += w * amp;
     }
   }
 }
@@ -504,13 +516,14 @@ function render(t) {
   for (const b of blobs) {
     const c = blobCenter(b, t);
     const flicker = 0.8 + 0.2 * Math.sin(t * (0.12 + 0.75 * P('breeze')) * 1.6 * b.fj + b.p3);
-    const r = rowH * (0.35 + 0.85 * b.v) * dapple;
-    const amp = (0.42 + 0.55 * b.v) * flicker * (0.85 + 0.15 * G);
-    splat(c.x, c.y, r, amp);
+    const r = rowH * (0.35 + 0.85 * b.v) * dapple * (1 + 0.55 * b.depth);
+    const amp = (0.42 + 0.55 * b.v) * flicker * (0.85 + 0.15 * G) * (1 - 0.38 * b.depth);
+    const core = 0.55 * (1 - b.depth);
+    splat(c.x, c.y, r, amp, core);
     if (ec) {
       // the moon takes a bite from every pinhole's sun
       const off = r * (1.5 - 1.28 * ec.c);
-      splat(c.x + off * ec.dx, c.y + off * ec.dy, r * 0.92, -amp * 1.15 * ec.c);
+      splat(c.x + off * ec.dx, c.y + off * ec.dy, r * 0.92, -amp * 1.15 * ec.c, core);
     }
   }
 
