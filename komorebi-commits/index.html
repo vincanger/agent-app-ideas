@@ -543,42 +543,31 @@ function render(t) {
       const y = gy * SSTEP;
       for (let gx = 0; gx < sgw; gx++) {
         const x = gx * SSTEP;
-        const wx = vnoise(x * 0.026 - drift * 0.6, y * 0.052, 911);
-        const wy = vnoise(x * 0.026 + 37 - drift * 0.45, y * 0.052, 977);
-        const px = x * 0.045 - drift + (wx - 0.5) * 9;
-        const py = y * 0.09 + (wy - 0.5) * 7 + drift * 0.2;
-        const raw = (vnoise(px, py, 501)
-                   + 0.5 * vnoise(px * 2.1, py * 2.1, 733)
-                   + 0.25 * vnoise(px * 4.2, py * 4.2, 877)) / 1.75;
+        const wx = vnoise(x * 0.026 - drift * 0.6, y * 0.052, 911) - 0.5;
+        const wy = vnoise(x * 0.026 + 37 - drift * 0.45, y * 0.052, 977) - 0.5;
+        // octaves travel at different speeds: the cloud masses cross,
+        // their mid detail lags, and the finest lacework stays pinned —
+        // so it is revealed by the passing shade rather than dragged
+        const o1 = vnoise(x * 0.045 - drift + wx * 9, y * 0.09 + drift * 0.2 + wy * 7, 501);
+        const o2 = vnoise(x * 0.0945 - drift * 0.84 + wx * 7, y * 0.189 + wy * 5.5, 733);
+        const o3 = vnoise(x * 0.189 - drift * 0.21 + wx * 2, y * 0.378 + wy * 1.6, 877);
+        const raw = (o1 + 0.5 * o2 + 0.25 * o3) / 1.75;
         shadeGrid[gy * sgw + gx] = Math.min(1, Math.max(0, (raw - 0.36) * 2.0));
       }
     }
   }
 
-  const nT = t * 0.35;
-  const nI = Math.floor(nT), nF = nT - nI;
   const data = img.data;
-  const noiseScale = 0.55; // field px → noise cells (coarse)
   if (!ibuf || ibuf.length !== fw * fh) { ibuf = new Float32Array(fw * fh); sbuf = new Float32Array(fw * fh); }
 
   // pass 1: total intensity + shade per pixel
   for (let y = 0; y < fh; y++) {
-    const ny = y * noiseScale * 0.5; // noise squashed like the light
-    const iy = Math.floor(ny);
     for (let x = 0; x < fw; x++) {
       const idx = y * fw + x;
-      const nx = x * noiseScale * 0.22;
-      const ix = Math.floor(nx);
-      // one octave of value noise, interpolated in space and time
-      const fx = nx - ix, fy = ny - iy;
-      const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
-      const n00a = hash2(ix + nI * 91, iy), n10a = hash2(ix + 1 + nI * 91, iy);
-      const n01a = hash2(ix + nI * 91, iy + 1), n11a = hash2(ix + 1 + nI * 91, iy + 1);
-      const n00b = hash2(ix + (nI + 1) * 91, iy), n10b = hash2(ix + 1 + (nI + 1) * 91, iy);
-      const n01b = hash2(ix + (nI + 1) * 91, iy + 1), n11b = hash2(ix + 1 + (nI + 1) * 91, iy + 1);
-      const na = n00a + (n10a - n00a) * sx + (n01a - n00a) * sy + (n00a - n10a - n01a + n11a) * sx * sy;
-      const nb = n00b + (n10b - n00b) * sx + (n01b - n00b) * sy + (n00b - n10b - n01b + n11b) * sx * sy;
-      const noise = na + (nb - na) * nF;
+      // static undergrowth: the speckle constellation is fixed in
+      // place — only the light and shade passing over it make
+      // individual pixels blink out and return
+      const noise = vnoise(x * 0.121, y * 0.275, 0);
 
       // sample the canopy shade field bilinearly
       let S = 0;
