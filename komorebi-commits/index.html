@@ -643,7 +643,7 @@ function frame(now) {
   if (now - lastFrame > 1000 / 30) { // 30fps is plenty for leaves
     lastFrame = now;
     render(t);
-    if (videoRec) videoRec.rctx.drawImage(canvas, 0, 0, videoRec.rc.width, videoRec.rc.height);
+    if (videoRec) drawExportChrome(videoRec.rctx, videoRec.L, true);
   }
   requestAnimationFrame(frame);
 }
@@ -742,24 +742,37 @@ document.getElementById('btnShare').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('btnSave').addEventListener('click', () => {
-  // export the frame + caption, chunky pixels intact
-  const scale = Math.max(2, Math.round(P('grain')));
-  const pad = 24 * 2, capH = 60;
-  const out = document.createElement('canvas');
-  out.width = fw * scale + pad * 2;
-  out.height = fh * scale + pad * 2 + capH;
-  const o = out.getContext('2d');
-  o.imageSmoothingEnabled = false;
-  o.fillStyle = `rgb(${11},${19},${34})`;
-  o.fillRect(0, 0, out.width, out.height);
+/* shared export layout: framed scene + caption, like the page itself */
+const PAGE_RGB = [11, 19, 34];
+const BORDER_RGB = [90, 102, 121];   // the frame line, composited over the page
+
+function exportLayout() {
+  const scale = exportScale();
+  const pad = 36, capH = 56;
+  return { scale, pad, capH, w: fw * scale + pad * 2, h: fh * scale + pad * 2 + capH };
+}
+
+function drawExportChrome(o, L, withScene) {
+  o.fillStyle = `rgb(${PAGE_RGB.join(',')})`;
+  o.fillRect(0, 0, L.w, L.h);
   o.strokeStyle = 'rgba(154,172,208,0.55)';
-  o.strokeRect(pad - 11.5, pad - 11.5, fw * scale + 23, fh * scale + 23);
-  o.drawImage(canvas, pad, pad, fw * scale, fh * scale);
+  o.lineWidth = 1;
+  o.strokeRect(L.pad - 10.5, L.pad - 10.5, fw * L.scale + 21, fh * L.scale + 21);
+  if (withScene) {
+    o.imageSmoothingEnabled = false;
+    o.drawImage(canvas, L.pad, L.pad, fw * L.scale, fh * L.scale);
+  }
   o.fillStyle = 'rgba(154,172,208,0.9)';
   o.font = '15px ui-monospace, Menlo, monospace';
   o.textAlign = 'center';
-  o.fillText(captionEl.textContent, out.width / 2, fh * scale + pad + 42);
+  o.fillText(captionEl.textContent, L.w / 2, fh * L.scale + L.pad + 38);
+}
+
+document.getElementById('btnSave').addEventListener('click', () => {
+  const L = exportLayout();
+  const out = document.createElement('canvas');
+  out.width = L.w; out.height = L.h;
+  drawExportChrome(out.getContext('2d'), L, true);
   const a = document.createElement('a');
   a.download = `komorebi-${meta.user || 'commits'}.png`;
   a.href = out.toDataURL('image/png');
@@ -781,8 +794,32 @@ function downloadBlob(blob, name) {
    4-entry palette. The loop plays forward then backward (ping-pong),
    so it never visibly jumps. */
 
-const PALETTE = [GROUND, SHADE, LIGHT, GOLD];
 const R_TO_INDEX = { 20: 0, 52: 1, 154: 2, 220: 3 }; // red channel is unique per tone
+/* full GIF palette: the four scene tones plus the page chrome
+   (background, frame border) — 6 used, padded to 8 entries */
+const GIF_PALETTE = [GROUND, SHADE, LIGHT, GOLD, PAGE_RGB, BORDER_RGB, [0, 0, 0], [0, 0, 0]];
+
+/* render the frame + caption once and map it to palette indices —
+   the static plate every GIF frame is composed onto */
+function gifChromeTemplate(L) {
+  const c = document.createElement('canvas');
+  c.width = L.w; c.height = L.h;
+  const o = c.getContext('2d');
+  drawExportChrome(o, L, false);
+  const d = o.getImageData(0, 0, L.w, L.h).data;
+  const out = new Uint8Array(L.w * L.h);
+  for (let i = 0; i < out.length; i++) {
+    const r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2];
+    let best = 0, bd = Infinity;
+    for (let p = 0; p < 6; p++) {
+      const pc = GIF_PALETTE[p];
+      const dist = (r - pc[0]) ** 2 + (g - pc[1]) ** 2 + (b - pc[2]) ** 2;
+      if (dist < bd) { bd = dist; best = p; }
+    }
+    out[i] = best;
+  }
+  return out;
+}
 
 function exportScale() { return Math.max(1, Math.min(6, Math.round(cssW / fw))); }
 
@@ -852,29 +889,35 @@ async function saveGif() {
   showToast('rendering gif…');
   await new Promise(r => setTimeout(r, 40));
   try {
-    const scale = exportScale();
-    const w = fw * scale, h = fh * scale;
+    const L = exportLayout();
+    const template = gifChromeTemplate(L);
+    const sw = fw * L.scale;
     const dt = 0.08, nFwd = 45;                       // 3.6s forward, ping-ponged to ~7s
     const t0 = REDUCED_MOTION ? 12.0 : (performance.now() - start) / 1000;
     const frames = [];
     for (let i = 0; i < nFwd; i++) {
       render(t0 + i * dt);
-      frames.push(frameIndices(scale));
+      const scene = frameIndices(L.scale);
+      const f = template.slice();
+      for (let y = 0; y < fh * L.scale; y++) {
+        f.set(scene.subarray(y * sw, y * sw + sw), (y + L.pad) * L.w + L.pad);
+      }
+      frames.push(f);
       if (i % 8 === 7) await new Promise(r => setTimeout(r, 0));
     }
     for (let i = nFwd - 2; i > 0; i--) frames.push(frames[i]);
     const out = [];
     const u16 = (v) => { out.push(v & 0xff, (v >> 8) & 0xff); };
     for (const ch of 'GIF89a') out.push(ch.charCodeAt(0));
-    u16(w); u16(h); out.push(0xF1, 0, 0);             // 4-color global palette
-    for (const c of PALETTE) out.push(c[0], c[1], c[2]);
+    u16(L.w); u16(L.h); out.push(0xF2, 0, 0);          // 8-entry global palette
+    for (const c of GIF_PALETTE) out.push(c[0], c[1], c[2]);
     out.push(0x21, 0xFF, 0x0B);                        // loop forever
     for (const ch of 'NETSCAPE2.0') out.push(ch.charCodeAt(0));
     out.push(3, 1, 0, 0, 0);
     for (const f of frames) {
       out.push(0x21, 0xF9, 4, 0x04); u16(8); out.push(0, 0);   // 80ms/frame
-      out.push(0x2C); u16(0); u16(0); u16(w); u16(h); out.push(0);
-      lzwEncode(f, 2, out);
+      out.push(0x2C); u16(0); u16(0); u16(L.w); u16(L.h); out.push(0);
+      lzwEncode(f, 3, out);
       await new Promise(r => setTimeout(r, 0));
     }
     out.push(0x3B);
@@ -891,12 +934,11 @@ document.getElementById('btnGif').addEventListener('click', saveGif);
 let videoRec = null;
 document.getElementById('btnVideo').addEventListener('click', () => {
   if (videoRec) return;
-  const scale = exportScale();
+  const L = exportLayout();
   const rc = document.createElement('canvas');
-  rc.width = fw * scale; rc.height = fh * scale;
+  rc.width = L.w; rc.height = L.h;
   const rctx = rc.getContext('2d');
-  rctx.imageSmoothingEnabled = false;
-  rctx.drawImage(canvas, 0, 0, rc.width, rc.height);
+  drawExportChrome(rctx, L, true);
   const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
   const mime = types.find(tp => MediaRecorder.isTypeSupported(tp));
   const rec = new MediaRecorder(rc.captureStream(30), mime ? { mimeType: mime, videoBitsPerSecond: 8e6 } : undefined);
@@ -908,7 +950,7 @@ document.getElementById('btnVideo').addEventListener('click', () => {
     downloadBlob(new Blob(chunks, { type: rec.mimeType }), `komorebi-${meta.user || 'commits'}.${ext}`);
     showToast(`video saved (${ext})`);
   };
-  videoRec = { rc, rctx };
+  videoRec = { rc, rctx, L };
   rec.start();
   showToast('recording 8 seconds of light…');
   setTimeout(() => rec.stop(), 8000);
