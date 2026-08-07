@@ -52,6 +52,8 @@ written into the URL — a shared link reproduces your exact tuning:
   pinhole camera projecting an image of the sun — so during an eclipse, dapples
   become crescents. For ~18 seconds the moon crosses, every patch is eaten to a
   sliver, and the light comes back.
+- **reshuffle tree** (enabled while `wood` > 0) grows a different tree from
+  the same year; the chosen tree travels in the share URL.
 - **copy link** shares user + all property values; **save image** exports a
   framed PNG with the caption, chunky pixels intact.
 - **save gif** renders ~7 seconds of the breeze into an animated GIF that

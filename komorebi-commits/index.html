@@ -139,6 +139,8 @@
     transition: color 0.25s, border-color 0.25s;
   }
   footer button:hover { color: var(--ink); border-bottom-color: var(--line); }
+  footer button:disabled { opacity: 0.35; cursor: default; }
+  footer button:disabled:hover { color: var(--ink-dim); border-bottom-color: transparent; }
 
   #tooltip {
     position: fixed; z-index: 20; pointer-events: none;
@@ -219,6 +221,7 @@
     light through a year of commits · after <a href="https://jzhao.xyz/posts/dappled-light" target="_blank" rel="noopener">“dappled light”</a> by jacky zhao
   </div>
   <div class="actions">
+    <button id="btnTree" title="grow a different tree from the same year">reshuffle tree</button>
     <button id="btnShare">copy link</button>
     <button id="btnSave">save image</button>
     <button id="btnGif">save gif</button>
@@ -455,6 +458,7 @@ function layout() {
 
 let woodField = null;   // 0..1 wood shadow (core + penumbra)
 let woodNear = null;    // 0..1 proximity to branches, for foliage clustering
+let treeSeed = 0;       // reshuffle counter — same user, different tree
 
 function makeRng(str) {
   let h = 2166136261 >>> 0;
@@ -480,35 +484,53 @@ function buildWood() {
   if (!fw || !fh) return;
   woodField = new Float32Array(fw * fh);
   woodNear = new Float32Array(fw * fh);
-  const rng = makeRng(meta.user || 'komorebi');
+  const rng = makeRng(`${meta.user || 'komorebi'}#${treeSeed}`);
   const segs = [];
 
-  const grow = (x, y, ang, w, gen) => {
-    if (w < 0.7 || gen > 48 || segs.length > 340) return;
-    const len = rowH * (0.9 + rng() * 0.8) * (gen < 3 ? 1.5 : 1);
+  // Real limbs are gentle arcs, not random walks: each branch keeps a
+  // persistent curl and is held near its own course. Side branches
+  // leave a continuing leader instead of symmetric forks.
+  const grow = (x, y, ang, base, curl, w, gen) => {
+    if (w < 0.7 || gen > 60 || segs.length > 340) return;
+    const len = rowH * (0.8 + rng() * 0.5) * (gen < 3 ? 1.3 : 1);
     const nx = x + Math.cos(ang) * len, ny = y + Math.sin(ang) * len;
     segs.push([x, y, nx, ny, w]);
+    // the frame is a wide, low window into the canopy: as a limb nears
+    // the top its course eases toward horizontal and it becomes a bough
+    if (ny < fh * 0.62) {
+      const horiz = Math.cos(base) >= 0 ? -0.10 : -Math.PI + 0.10;
+      base += (horiz - base) * 0.3;
+    }
     const p = rng();
-    if (p < 0.32 && gen > 2) {
-      // fork: area conserved across the split
-      const split = 0.35 + rng() * 0.25;
-      const spread = (0.45 + rng() * 0.5) * (0.7 + 0.5 * (1 - ny / fh));
-      grow(nx, ny, ang - spread, w * Math.sqrt(split), gen + 1);
-      grow(nx, ny, ang + spread, w * Math.sqrt(1 - split), gen + 1);
+    if (w > rowH * 0.34 && ny < fh * 0.55 && Math.abs(Math.sin(base)) > 0.6) {
+      // the trunk crowns: two main boughs head left and right
+      const split = 0.4 + rng() * 0.2;
+      grow(nx, ny, -0.35 - rng() * 0.3, -0.15, (rng() - 0.5) * 0.05, w * Math.sqrt(split), gen + 1);
+      grow(nx, ny, -Math.PI + 0.35 + rng() * 0.3, -Math.PI + 0.15, (rng() - 0.5) * 0.05, w * Math.sqrt(1 - split), gen + 1);
+    } else if (p < 0.30 && gen > 1 && w > 1.0) {
+      // a side branch departs; area is conserved (da Vinci)
+      const side = rng() < 0.5 ? -1 : 1;
+      const sideAng = ang + side * (0.45 + rng() * 0.4);
+      const split = 0.22 + rng() * 0.14;
+      grow(nx, ny, sideAng, sideAng, (rng() - 0.5) * 0.06, w * Math.sqrt(split), gen + 1);
+      grow(nx, ny, ang, base, curl, w * Math.sqrt(1 - split), gen + 1);
     } else {
-      let na = ang + (rng() - 0.5) * 0.4;
-      // near the top of the frame, limbs spread sideways under the canopy
-      if (ny < fh * 0.45) na += (Math.cos(ang) >= 0 ? 1 : -1) * 0.18;
-      // gentle upward pull so limbs don't dive to the ground
-      if (Math.sin(na) > 0.3) na -= 0.28;
-      grow(nx, ny, na, w * 0.93, gen + 1);
+      let na = ang + curl + (rng() - 0.5) * 0.12;
+      // stay near the branch's own course — no doubling back
+      const dev = na - base;
+      if (dev > 0.5) na = base + 0.5;
+      else if (dev < -0.5) na = base - 0.5;
+      // never dive toward the ground
+      if (Math.sin(na) > 0.15) na = ang - 0.12;
+      grow(nx, ny, na, base, curl, w * 0.965, gen + 1);
     }
   };
 
   // trunk on a rule-of-thirds line, leaning slightly
   const third = rng() < 0.5 ? 0.31 : 0.65;
+  const trunkAng = -Math.PI / 2 + (rng() - 0.5) * 0.2;
   grow(fw * third + (rng() - 0.5) * fw * 0.05, fh + rowH * 0.6,
-       -Math.PI / 2 + (rng() - 0.5) * 0.24, rowH * 0.55, 0);
+       trunkAng, trunkAng, (rng() - 0.5) * 0.05, rowH * 0.55, 0);
 
   const reach = rowH * 2.8;
   for (const [x1, y1, x2, y2, w] of segs) {
@@ -758,6 +780,7 @@ function buildPanel() {
       valSpan.textContent = p.fmt(p.value);
       if (p.rebuild) layout();
       syncUrl();
+      syncTreeButton();
       if (REDUCED_MOTION) renderOnce();
     });
     wrap.append(label, input);
@@ -777,6 +800,7 @@ function syncUrl() {
       const p = props[name];
       if (Math.abs(p.value - p.default) > 1e-9) url.searchParams.set(key, p.value);
     }
+    if (treeSeed) url.searchParams.set('tree', treeSeed);
     history.replaceState(null, '', url);
   }, 200);
 }
@@ -816,6 +840,15 @@ document.addEventListener('keydown', (e) => {
     showToast('the moon passes — every gap in the leaves is a pinhole camera');
     if (REDUCED_MOTION) requestAnimationFrame(frame);
   }
+});
+
+const btnTree = document.getElementById('btnTree');
+function syncTreeButton() { btnTree.disabled = P('wood') === 0; }
+btnTree.addEventListener('click', () => {
+  treeSeed++;
+  buildWood();
+  syncUrl();
+  if (REDUCED_MOTION) renderOnce();
 });
 
 document.getElementById('btnShare').addEventListener('click', async () => {
@@ -1107,7 +1140,9 @@ for (const [name, key] of Object.entries(PARAM_KEYS)) {
     if (Number.isFinite(v)) props[name].value = Math.min(props[name].max, Math.max(props[name].min, v));
   }
 }
+treeSeed = Math.max(0, parseInt(params.get('tree'), 10) || 0);
 buildPanel();
+syncTreeButton();
 
 const initialUser = (params.get('user') || '').trim().replace(/^@/, '');
 if (initialUser) userInput.value = initialUser;
