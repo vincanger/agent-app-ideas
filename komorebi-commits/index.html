@@ -257,8 +257,7 @@ const SHADE  = [52, 70, 106];    // canopy shade — dimmer than light, softer t
 
 /* tunable properties — the panel below the frame */
 const props = {
-  'gold start': { value: 0.52, min: 0, max: 1, step: 0.01, fmt: v => v.toFixed(2) },
-  'gold end':   { value: 0.73, min: 0, max: 1, step: 0.01, fmt: v => v.toFixed(2) },
+  'fringe':     { value: 0.60, min: 0, max: 1, step: 0.01, fmt: v => v.toFixed(2) },
   'breeze':     { value: 0.50, min: 0, max: 1, step: 0.01, fmt: v => v.toFixed(2) },
   'shade':      { value: 0.55, min: 0, max: 1, step: 0.01, fmt: v => v.toFixed(2) },
   'dapple':     { value: 1.00, min: 0.4, max: 2, step: 0.01, fmt: v => v.toFixed(2), rebuild: true },
@@ -464,6 +463,7 @@ function blobCenter(b, t) {
 /* ---------- the field ---------- */
 
 let field = null;
+let ibuf = null, sbuf = null;   // per-pixel intensity / shade, for the fringe pass
 
 function eclipseState(t) {
   if (!eclipse.active) return null;
@@ -515,7 +515,6 @@ function render(t) {
   }
 
   // drifting undergrowth noise + canopy shade + dithered quantization
-  const g1 = P('gold start'), g2 = P('gold end');
   const shadeAmt = P('shade');
   const drift = t * (0.008 + 0.06 * P('breeze'));  // shade clouds cross with the wind
 
@@ -547,6 +546,9 @@ function render(t) {
   const nI = Math.floor(nT), nF = nT - nI;
   const data = img.data;
   const noiseScale = 0.55; // field px → noise cells (coarse)
+  if (!ibuf || ibuf.length !== fw * fh) { ibuf = new Float32Array(fw * fh); sbuf = new Float32Array(fw * fh); }
+
+  // pass 1: total intensity + shade per pixel
   for (let y = 0; y < fh; y++) {
     const ny = y * noiseScale * 0.5; // noise squashed like the light
     const iy = Math.floor(ny);
@@ -577,17 +579,37 @@ function render(t) {
         S = shadeAmt * (sA + (sB - sA) * sfx + (sC - sA) * sfy + (sA - sB - sC + sD) * sfx * sfy);
       }
 
-      let I = Math.max(0, field[idx]) + noise * 0.26 - 0.10 - S * S * 0.55;
+      ibuf[idx] = Math.max(0, field[idx]) + noise * 0.26 - 0.10 - S * S * 0.55;
+      sbuf[idx] = S;
+    }
+  }
+
+  // pass 2: dither into flat tones. Gold is a boundary fringe — it lives
+  // where the light field falls off steeply at mid tones, the rim where
+  // sun blooms into shadow — not a band of raw intensity.
+  const fringe = P('fringe');
+  for (let y = 0; y < fh; y++) {
+    for (let x = 0; x < fw; x++) {
+      const idx = y * fw + x;
+      const I = ibuf[idx];
       const bay = BAYER[(y & 7) * 8 + (x & 7)] - 0.5;
 
-      let col = GROUND;
-      if (I + bay * 0.62 > 0.40) {
-        col = LIGHT;
-        const Ig = I + bay * 0.3;
-        if (Ig > g1 && Ig < g2) col = GOLD;
-      } else if (S + bay * 0.7 > 0.55) {
-        col = SHADE;
+      // fringe score first: it straddles the light/dark boundary.
+      // grad is normalized by rowH so the bloom width doesn't change
+      // with grain resolution.
+      let gold = false;
+      if (fringe > 0) {
+        const xl = ibuf[x > 0 ? idx - 1 : idx], xr = ibuf[x < fw - 1 ? idx + 1 : idx];
+        const yu = ibuf[y > 0 ? idx - fw : idx], yd = ibuf[y < fh - 1 ? idx + fw : idx];
+        const grad = Math.abs(xr - xl) + Math.abs(yd - yu);
+        const mid = Math.max(0, 1 - Math.abs(I - 0.40) * 2.6);
+        gold = grad * rowH * 0.33 * mid * fringe + bay * 0.45 > 0.34;
       }
+
+      let col = GROUND;
+      if (gold) col = GOLD;
+      else if (I + bay * 0.62 > 0.40) col = LIGHT;
+      else if (sbuf[idx] + bay * 0.7 > 0.55) col = SHADE;
       const o = idx * 4;
       data[o] = col[0]; data[o + 1] = col[1]; data[o + 2] = col[2]; data[o + 3] = 255;
     }
@@ -645,7 +667,7 @@ function buildPanel() {
   }
 }
 
-const PARAM_KEYS = { 'gold start': 'g1', 'gold end': 'g2', 'breeze': 'breeze', 'shade': 'shade', 'dapple': 'dapple', 'grain': 'grain' };
+const PARAM_KEYS = { 'fringe': 'fringe', 'breeze': 'breeze', 'shade': 'shade', 'dapple': 'dapple', 'grain': 'grain' };
 let urlTimer = null;
 function syncUrl() {
   clearTimeout(urlTimer);
