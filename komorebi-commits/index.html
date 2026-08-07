@@ -451,8 +451,8 @@ function gustAt(t) {
 function blobCenter(b, t) {
   const breeze = P('breeze');
   const G = gustAt(t);
-  const swayAmp = b.amp * cellW * (0.4 + 1.6 * breeze) * (0.35 + 0.65 * G);
-  const ts = t * (0.4 + 1.1 * breeze);
+  const swayAmp = b.amp * cellW * (0.25 + 1.5 * breeze) * (0.35 + 0.65 * G);
+  const ts = t * (0.08 + 0.9 * breeze);
   return {
     x: (maxWeek() - 1 - b.week + 0.5 + b.jx) * cellW
        + (Math.sin(ts * 0.9 * b.fj + b.p1) + 0.5 * Math.sin(ts * 1.9 * b.fj + b.p2)) * swayAmp,
@@ -503,7 +503,7 @@ function render(t) {
 
   for (const b of blobs) {
     const c = blobCenter(b, t);
-    const flicker = 0.8 + 0.2 * Math.sin(t * (0.5 + P('breeze')) * 1.6 * b.fj + b.p3);
+    const flicker = 0.8 + 0.2 * Math.sin(t * (0.12 + 0.75 * P('breeze')) * 1.6 * b.fj + b.p3);
     const r = rowH * (0.35 + 0.85 * b.v) * dapple;
     const amp = (0.42 + 0.55 * b.v) * flicker * (0.85 + 0.15 * G);
     splat(c.x, c.y, r, amp);
@@ -517,7 +517,7 @@ function render(t) {
   // drifting undergrowth noise + canopy shade + dithered quantization
   const g1 = P('gold start'), g2 = P('gold end');
   const shadeAmt = P('shade');
-  const drift = t * (0.03 + 0.12 * P('breeze'));  // shade clouds cross with the wind
+  const drift = t * (0.008 + 0.06 * P('breeze'));  // shade clouds cross with the wind
 
   // canopy shade field: domain-warped three-octave fBm, computed on a
   // coarse subgrid then sampled bilinearly per pixel — organic cloud
