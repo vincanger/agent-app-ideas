@@ -1,53 +1,66 @@
 # komorebi commits 木漏れ日
 
-Your GitHub contribution graph, rendered as **dappled light** — sunlight leaking
-through a tree canopy onto a wall.
+Your GitHub contribution graph, rendered as **dappled light** — flat, dithered,
+and slowly breathing.
 
-Inspired by [“dappled light”](https://jzhao.xyz/posts/dappled-light) by Jacky Zhao.
+Inspired by [“dappled light”](https://jzhao.xyz/posts/dappled-light) by Jacky
+Zhao, and by the flat two-tone dithered aesthetic of jzhao.xyz itself.
 
 ## The idea
 
-Instead of drawing the commit graph as a grid of green cells, each day you
-contributed becomes a *gap in the leaves*. The wall behind is in shadow; light
-leaks through wherever you shipped something. Brighter, larger patches mean more
-contributions that day. The canopy sways in the wind — patches drift, flicker,
-and gust together — while soft foliage shadows frame the scene.
-
-The 53-week × 7-day shape of the graph stays readable, but it reads as weather,
-not data.
+Every day you contributed is a gap in a tree canopy. Sunlight leaks through the
+gaps and lands as patches of light; the breeze keeps the whole pattern
+shifting. Here that light field is computed from your last year of commits
+(53 weeks across, 7 weekdays down, patch size and brightness from contribution
+count), then pushed through **8×8 Bayer ordered dithering** into three flat
+tones — navy ground, periwinkle light, and a tunable band of gold — at chunky
+pixel resolution. No gradients, no glow: just pixels, like a risograph print
+that happens to be alive.
 
 ## Try it
 
-It's a single self-contained HTML file — no build, no dependencies:
+A single self-contained HTML file — no build, no dependencies:
 
 ```
 open index.html            # or serve it: python3 -m http.server
 ```
 
-- Type any GitHub username (or visit `?user=<name>`) to load their last year of
-  contributions, fetched client-side from the public
-  [github-contributions-api](https://github-contributions-api.jogruber.de).
-- If the API can't be reached, it falls back to an imagined (clearly labeled)
-  demo year, so the page always shows something alive. `?demo=1` forces this.
+Type any GitHub username (or visit `?user=<name>`). Contributions are fetched
+client-side from the public
+[github-contributions-api](https://github-contributions-api.jogruber.de); if it
+can't be reached the page falls back to an imagined, clearly-labeled demo year
+(`?demo=1` forces this).
 
-## Details worth hovering over
+## Properties
 
-- **Hover** any light patch to see the date and contribution count.
-- **☾ eclipse** (or press `e`): during a solar eclipse, every gap between
-  leaves acts as a pinhole camera and projects a crescent sun — the observation
-  at the heart of the essay. For ~25 seconds the moon slides across, the world
-  darkens, and every patch of your year becomes a crescent.
-- **copy link** gives a shareable `?user=` URL; **save image** downloads the
-  current frame as a PNG, caption included.
-- Respects `prefers-reduced-motion` (renders a still frame of the light).
+The panel under the frame exposes the live parameters, and every one of them is
+written into the URL — a shared link reproduces your exact tuning:
 
-## How the light works
+| property | what it does |
+|---|---|
+| `gold start` / `gold end` | the intensity band that renders gold — slide it to rim the patches, fill their cores, or remove gold entirely |
+| `breeze` | wind strength: sway amplitude, speed, and flicker |
+| `dapple` | how far each day's light spreads |
+| `grain` | pixel size of the dither, 2–9px |
 
-Canvas 2D, ~365 radial-gradient blobs composited with `lighter` onto an
-offscreen light layer, then `screen`-blended over a shadowed plaster wall.
-Wind is layered sinusoids: a global gust envelope modulates per-blob sway
-amplitude and flicker, with deterministic per-day phase/frequency jitter so the
-motion is organic but reproducible. Crescents are cut per-blob with a
-`destination-out` punch on a scratch canvas. Foliage shadows are large
-multiply-composited soft masses with their own slower sway; film grain and a
-vignette finish it.
+## Details
+
+- **Hover** a patch for the date and contribution count.
+- **Press `e`**: the essay's observation is that every gap between leaves is a
+  pinhole camera projecting an image of the sun — so during an eclipse, dapples
+  become crescents. For ~18 seconds the moon crosses, every patch is eaten to a
+  sliver, and the light comes back.
+- **copy link** shares user + all property values; **save image** exports a
+  framed PNG with the caption, chunky pixels intact.
+- Respects `prefers-reduced-motion` (still frame, properties still live).
+
+## How it works
+
+Canvas 2D at field resolution (viewport ÷ grain). Each active day splats a
+quadratic radial kernel into a `Float32Array` intensity field; wind is layered
+sinusoids with a shared gust envelope and per-day deterministic phase jitter.
+A drifting octave of value noise seeds the dark ground with speckle. Per pixel,
+intensity + Bayer threshold picks ground vs light, and the gold band claims
+intensities between `gold start` and `gold end`. The ImageData is drawn 1:1 and
+upscaled with `image-rendering: pixelated`. The eclipse subtracts a second,
+offset kernel per day — a bite of moon in every pinhole.
