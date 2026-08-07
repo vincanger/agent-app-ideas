@@ -69,16 +69,6 @@ function cleanContributions(raw: unknown): ContributionDay[] {
   });
 }
 
-export function prefsKeyOf(prefs: Prefs): string {
-  return [
-    prefs.fringe.toFixed(2),
-    prefs.breeze.toFixed(2),
-    prefs.shade.toFixed(2),
-    prefs.dapple.toFixed(2),
-    String(Math.round(prefs.grain)),
-  ].join("|");
-}
-
 export const recordShare: RecordShare<RecordShareInput, Share> = async (args, context) => {
   const handle = String(args.handle ?? "").trim().replace(/^@/, "").toLowerCase();
   if (!HANDLE_RE.test(handle)) throw new HttpError(400, "invalid github handle");
@@ -88,12 +78,11 @@ export const recordShare: RecordShare<RecordShareInput, Share> = async (args, co
   const contributions = cleanContributions(args.contributions);
   const total = Math.max(0, Math.floor(Number(args.total) || 0));
   const streak = Math.max(0, Math.floor(Number(args.streak) || 0));
-  const prefsKey = prefsKeyOf(prefs);
 
   return context.entities.Share.upsert({
-    where: { handle_prefsKey: { handle, prefsKey } },
-    update: { action: args.action, contributions, total, streak },
-    create: { handle, action: args.action, prefsKey, prefs, contributions, total, streak },
+    where: { handle },
+    update: { action: args.action, prefs, contributions, total, streak },
+    create: { handle, action: args.action, prefs, contributions, total, streak },
   });
 };
 

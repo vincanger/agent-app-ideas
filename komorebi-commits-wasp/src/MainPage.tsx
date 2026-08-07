@@ -199,7 +199,7 @@ export function MainPage() {
     showToast("rendering gif…");
     const ok = await saveGif(engineRef.current, captionText(m), m.user);
     if (ok) {
-      showToast("gif saved — loops back and forth, seamlessly");
+      showToast("gif saved — a perfect loop");
       recordIfReal("gif");
     }
   }

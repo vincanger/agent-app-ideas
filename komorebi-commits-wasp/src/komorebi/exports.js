@@ -56,8 +56,9 @@ export function savePng(engine, caption, user) {
 /* ---------- animated GIF export ----------
    The frame is already four flat colors, which is exactly what GIF
    wants — so this is a small hand-rolled GIF89a encoder with a
-   4-entry palette. The loop plays forward then backward (ping-pong),
-   so it never visibly jumps. */
+   4-entry palette. The loop is a perfect cycle: each frame blends the
+   light field with itself one period earlier (see renderLoopFrame),
+   so the last frame flows straight back into the first. */
 
 const R_TO_INDEX = { 20: 0, 52: 1, 154: 2, 220: 3 }; // red channel is unique per tone
 /* full GIF palette: the four scene tones plus the page chrome
@@ -158,11 +159,12 @@ export async function saveGif(engine, caption, user) {
     const L = exportLayout(engine);
     const template = gifChromeTemplate(engine, L, caption);
     const sw = engine.fw * L.scale;
-    const dt = 0.08, nFwd = 45;                       // 3.6s forward, ping-ponged to ~7s
+    const dt = 0.08, nFrames = 60;                     // one 4.8s seamless cycle
+    const period = dt * nFrames;
     const t0 = REDUCED_MOTION ? 12.0 : engine.currentT();
     const frames = [];
-    for (let i = 0; i < nFwd; i++) {
-      engine.render(t0 + i * dt);
+    for (let i = 0; i < nFrames; i++) {
+      engine.renderLoopFrame(t0, i / nFrames, period);
       const scene = frameIndices(engine, L.scale);
       const f = template.slice();
       for (let y = 0; y < engine.fh * L.scale; y++) {
@@ -171,7 +173,6 @@ export async function saveGif(engine, caption, user) {
       frames.push(f);
       if (i % 8 === 7) await new Promise(r => setTimeout(r, 0));
     }
-    for (let i = nFwd - 2; i > 0; i--) frames.push(frames[i]);
     const out = [];
     const u16 = (v) => { out.push(v & 0xff, (v >> 8) & 0xff); };
     for (const ch of 'GIF89a') out.push(ch.charCodeAt(0));

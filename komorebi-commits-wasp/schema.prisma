@@ -11,16 +11,14 @@ generator client {
 
 model Share {
   id            String   @id @default(uuid())
-  handle        String // github username, lowercased
-  action        String // "link" | "png" | "gif" — most recent action for this combo
-  prefsKey      String // canonical serialization of prefs, e.g. "0.12|0.10|0.50|0.70|2"
-  prefs         Json // { fringe, breeze, shade, dapple, grain }
+  handle        String   @unique // github username, lowercased — one gallery card each
+  action        String // "link" | "png" | "gif" — most recent action
+  prefs         Json // { fringe, breeze, shade, dapple, grain } at last share
   contributions Json // snapshot at click time: [{ date, count, level }]
   total         Int
   streak        Int
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  @@unique([handle, prefsKey])
   @@index([updatedAt])
 }

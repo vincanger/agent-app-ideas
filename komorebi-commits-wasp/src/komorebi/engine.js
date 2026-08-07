@@ -313,6 +313,36 @@ export class KomorebiEngine {
 
   render(t) {
     if (!this.img) return;
+    this.computeFields(t);
+    this.composite();
+  }
+
+  /* seamless loop frame for the GIF export: cross-blend the intensity
+     field with itself one `period` earlier, weighted by `frac` ∈ [0,1),
+     so frame frac→1 lands exactly on frame frac=0. The blend happens
+     before dithering, so the output stays four flat tones. */
+  renderLoopFrame(t0, frac, period) {
+    if (!this.img) return;
+    this.computeFields(t0 + frac * period);
+    const n = this.ibuf.length;
+    if (!this._loopI || this._loopI.length !== n) {
+      this._loopI = new Float32Array(n);
+      this._loopS = new Float32Array(n);
+    }
+    this._loopI.set(this.ibuf);
+    this._loopS.set(this.sbuf);
+    this.computeFields(t0 + frac * period - period);
+    const { ibuf, sbuf, _loopI, _loopS } = this;
+    for (let i = 0; i < n; i++) {
+      ibuf[i] = _loopI[i] * (1 - frac) + ibuf[i] * frac;
+      sbuf[i] = _loopS[i] * (1 - frac) + sbuf[i] * frac;
+    }
+    this.composite();
+  }
+
+  /* pass 0+1: splat the leaves and fill ibuf/sbuf with per-pixel
+     intensity and canopy shade at time t */
+  computeFields(t) {
     const { fw, fh, rowH } = this;
     if (!this.field || this.field.length !== fw * fh) this.field = new Float32Array(fw * fh);
     this.field.fill(0);
@@ -367,7 +397,6 @@ export class KomorebiEngine {
       }
     }
 
-    const data = this.img.data;
     if (!this.ibuf || this.ibuf.length !== fw * fh) {
       this.ibuf = new Float32Array(fw * fh);
       this.sbuf = new Float32Array(fw * fh);
@@ -404,10 +433,14 @@ export class KomorebiEngine {
         sbuf[idx] = S;
       }
     }
+  }
 
-    // pass 2: dither into flat tones. Gold is a boundary fringe — it lives
-    // where the light field falls off steeply at mid tones, the rim where
-    // sun blooms into shadow — not a band of raw intensity.
+  /* pass 2: dither ibuf/sbuf into flat tones. Gold is a boundary fringe —
+     it lives where the light field falls off steeply at mid tones, the rim
+     where sun blooms into shadow — not a band of raw intensity. */
+  composite() {
+    const { fw, fh, rowH, ibuf, sbuf } = this;
+    const data = this.img.data;
     const fringe = this.prefs.fringe;
     for (let y = 0; y < fh; y++) {
       for (let x = 0; x < fw; x++) {
