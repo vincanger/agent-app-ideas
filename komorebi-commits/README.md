@@ -42,7 +42,7 @@ written into the URL — a shared link reproduces your exact tuning:
 | `breeze` | wind strength: sway amplitude, speed, and flicker — also how fast the shade clouds cross |
 | `shade` | canopy shade: large slow clouds of leaf-shadow in a fourth mid-blue tone that fill the dark ground and erode the light as they pass over it |
 | `dapple` | how far each day's light spreads |
-| `grain` | pixel size of the dither, 2–9px |
+| `grain` | pixel size of the dither, 1–5px |
 
 ## Details
 
