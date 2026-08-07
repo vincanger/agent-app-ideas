@@ -41,7 +41,6 @@ written into the URL — a shared link reproduces your exact tuning:
 | `fringe` | the warm gold bloom where light meets shadow — applied only at steep gradients in the light field, straddling the boundary, the way real sunlight fringes a shadow's edge |
 | `breeze` | wind strength: sway amplitude, speed, and flicker — also how fast the shade clouds cross |
 | `shade` | canopy shade: large slow clouds of leaf-shadow in a fourth mid-blue tone that fill the dark ground and erode the light as they pass over it |
-| `wood` | the tree itself: a branching skeleton seeded by the username, cast as soft shadow (distance-to-segment, forks conserving cross-sectional area per da Vinci) with a darker bark silhouette, and the shade clustering along its limbs — 0 removes the tree entirely |
 | `dapple` | how far each day's light spreads |
 | `grain` | pixel size of the dither, 1–5px |
 
@@ -52,8 +51,6 @@ written into the URL — a shared link reproduces your exact tuning:
   pinhole camera projecting an image of the sun — so during an eclipse, dapples
   become crescents. For ~18 seconds the moon crosses, every patch is eaten to a
   sliver, and the light comes back.
-- **reshuffle tree** (enabled while `wood` > 0) grows a different tree from
-  the same year; the chosen tree travels in the share URL.
 - **copy link** shares user + all property values; **save image** exports a
   framed PNG with the caption, chunky pixels intact.
 - **save gif** renders ~7 seconds of the breeze into an animated GIF that
