@@ -1,0 +1,46 @@
+datasource db {
+  // PostgreSQL is required for PgBoss jobs (`wasp start db` runs one for you).
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        Int        @id @default(autoincrement())
+  flipbooks Flipbook[]
+}
+
+model Flipbook {
+  id         String   @id @default(uuid())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     Int
+  motion     String
+  model      String
+  frameCount Int
+  // "generating" | "ready" | "failed"
+  status     String   @default("generating")
+  error      String?
+  // playback speed in pages per second
+  fps        Int      @default(10)
+  // the user's sketch as a PNG data URL (also stored as frame 1)
+  sketch     String
+  frames     Frame[]
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Frame {
+  id         String   @id @default(uuid())
+  flipbook   Flipbook @relation(fields: [flipbookId], references: [id], onDelete: Cascade)
+  flipbookId String
+  // 1-based page number; frame 1 is the sketch itself
+  index      Int
+  // PNG data URL
+  image      String
+
+  @@unique([flipbookId, index])
+}
