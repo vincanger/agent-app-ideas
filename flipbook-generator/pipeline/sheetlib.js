@@ -1,32 +1,70 @@
 // Core of the sprite-sheet flipbook pipeline (see sheets.js for the CLI).
 //
-// Two model calls total:
-//   1. keyframe sheet   — 3:4 sheet of 16 cells (4x4), from the base sketch
-//   2. in-between sheet — 3:4 sheet of 16 cells, from the keyframe sheet;
-//      cell i is the 50% pose between keyframes i and i+1, cell 16 repeats
-//      keyframe 16
+// One model call per 16 keyframes: a 3:4 sheet with a 4x4 grid, drawn from the
+// base sketch, where each cell gets an explicit story beat from the shotlist
+// (stretched across the cells). Asking for 32 frames chains a second sheet
+// that continues from the last cell of the first.
 //
-// Both sheets are sliced (ffmpeg, small inset to drop grid lines) on whatever
-// grid the model actually drew (measured, not assumed) and interleaved
-// k1,b1,k2,b2,... into 2x flipbook pages.
-// The previous output is only wiped after both sheets have generated.
+// There is deliberately NO in-between sheet: image models re-render rather than
+// interpolate, so a "50% between" sheet comes back as the same poses at slight
+// offsets, and interleaving it just makes every other page jitter. Extra page
+// count comes from the client-side boil variants instead.
+//
+// Sheets are sliced (ffmpeg, small inset to drop grid lines) on whatever grid
+// the model actually drew (measured, not assumed). The previous output is only
+// wiped after every sheet has generated and validated.
 
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import Replicate from 'replicate'
+import { buildInput, resolveModel } from './models.js'
 
-export const MODEL = 'google/nano-banana-2'
 const INSET = 5 // px trimmed from each cell edge to drop the grid lines
 const RETRIES = 3
+const COLS = 4
+const ROWS = 4
+const CELLS = COLS * ROWS
 
-const GRID_NOTE = `The sprite sheet is a 4x4 grid: 16 equal cells, 4 columns by 4 rows, read left-to-right, top-to-bottom, separated by thin grid lines.`
+const GRID_NOTE = `Layout: a ${COLS}x${ROWS} grid of ${CELLS} equal cells, ${COLS} columns by ${ROWS} rows, read left-to-right then top-to-bottom, separated by thin grid lines. Every cell shows the whole scene at the same framing: same waterline height, same subject size.`
 
-const STYLE_NOTE = `The original drawing is the sole style authority: every frame must adhere EXACTLY to its style and form — same line quality, same character design, same proportions, same level of detail. Do not clean up, refine, or beautify anything.`
+const STYLE_NOTE = `Style: match the original drawing's line quality exactly (same stroke weight, same simple black lines on white, same character design and proportions). Keep it as loose and simple as the original; do not add shading, texture, or scenery.`
 
-const sheet1Prompt = (motion) => `create a sprite sheet of 16 images equi-distant apart using the base image as a reference and preserving the exact style. In the sprite sheet the sequence should be of ${motion}. The base image is the original drawing. ${STYLE_NOTE} ${GRID_NOTE}`
+// Stretches the shotlist across the cells that need a beat, so any length of
+// shotlist maps onto any number of cells.
+function beatsForCells(shotlist, count) {
+  if (!shotlist?.length) return Array(count).fill(null)
+  return Array.from({ length: count }, (_, i) =>
+    shotlist[Math.round((i / Math.max(1, count - 1)) * (shotlist.length - 1))])
+}
 
-const sheet2Prompt = `With these 16 frames in image 1 as keyframes, generate a new sprite sheet that creates the in-between frames (e.g. frame 1 of the new sprite sheet should be 50% between frame 1 and 2, and so forth). For the last frame just repeat frame 16 from image 1. Image 2 is the original drawing that image 1's frames were generated from. ${STYLE_NOTE} ${GRID_NOTE}`
+function beatLines(beats, firstCell) {
+  return beats.map((b, i) => `Cell ${firstCell + i}: ${b}`).join('\n')
+}
+
+function firstSheetPrompt(motion, shotlist) {
+  const beats = beatsForCells(shotlist, CELLS - 1)
+  const cells = shotlist?.length
+    ? `Cell 1: the original drawing's pose, exactly as drawn.\n${beatLines(beats, 2)}`
+    : `Cell 1 is the original drawing's pose; the motion advances by an equal, clearly visible step in every cell and completes in cell ${CELLS}.`
+  return `Draw a sprite sheet of ${CELLS} sequential animation frames of the attached drawing. The animation: ${motion}.
+Each cell must be a clearly different pose from its neighbours — this is a flipbook, so the motion has to visibly progress from cell to cell. Include the splashes, ripples, bubbles and other effects the beats call for, drawn in the same simple line style.
+${cells}
+${STYLE_NOTE}
+${GRID_NOTE}`
+}
+
+function nextSheetPrompt(motion, shotlist, offset) {
+  const beats = beatsForCells(shotlist, CELLS)
+  const cells = shotlist?.length
+    ? beatLines(beats, offset + 1)
+    : `The motion continues in equal, clearly visible steps and completes in the last cell.`
+  return `Image 1 is the previous sprite sheet of an animation of the attached drawing (image 2). Draw the NEXT sprite sheet: frames ${offset + 1} to ${offset + CELLS}, continuing seamlessly from the last cell of image 1. The animation: ${motion}.
+Each cell must be a clearly different pose from its neighbours.
+${cells}
+${STYLE_NOTE}
+${GRID_NOTE}`
+}
 
 async function outputToBuffer(output) {
   const item = Array.isArray(output) ? output[0] : output
@@ -38,9 +76,9 @@ async function outputToBuffer(output) {
   return Buffer.from(await res.arrayBuffer())
 }
 
-async function generateSheet(replicate, prompt, images) {
-  const output = await replicate.run(MODEL, {
-    input: { prompt, image_input: images, aspect_ratio: '3:4', output_format: 'png' },
+async function generateSheet(replicate, model, prompt, images) {
+  const output = await replicate.run(model, {
+    input: buildInput(model, { prompt, images, aspect: '3:4' }),
   })
   return outputToBuffer(output)
 }
@@ -133,19 +171,24 @@ function sliceSheet(sheetPath, destDir, prefix, { cols, rows }) {
   return files
 }
 
-// Runs the full pipeline: sketch buffer -> two sheets -> sliced, interleaved
-// frames + manifest in outDir. Throws on failure; the previous outDir contents
-// are only wiped after both sheets validate. Returns the manifest object.
-export async function buildFlipbook({ sketch, motion, outDir, sheetsDir, log = console.log }) {
+// Runs the full pipeline: sketch buffer -> one or two sheets -> sliced frames
+// + manifest in outDir. Throws on failure; the previous outDir contents are
+// only wiped after every sheet validates. Returns the manifest object.
+export async function buildFlipbook({
+  sketch, motion, outDir, sheetsDir, model, shotlist = null, frames = CELLS, log = console.log,
+}) {
+  const MODEL = resolveModel(model)
   const replicate = new Replicate()
+  log(`model: ${MODEL}`)
   const startedAt = Date.now()
   fs.mkdirSync(sheetsDir, { recursive: true })
+  const sheetCount = Math.max(1, Math.ceil(frames / CELLS))
 
   async function generateValidSheet(name, prompt, images) {
     const file = path.join(sheetsDir, name)
     for (let attempt = 1; attempt <= RETRIES; attempt++) {
       const t0 = Date.now()
-      const buf = await generateSheet(replicate, prompt, images)
+      const buf = await generateSheet(replicate, MODEL, prompt, images)
       fs.writeFileSync(file, buf)
       const grid = detectGrid(file)
       const secs = ((Date.now() - t0) / 1000).toFixed(1)
@@ -155,24 +198,34 @@ export async function buildFlipbook({ sketch, motion, outDir, sheetsDir, log = c
     throw new Error(`${name}: no uniform grid after ${RETRIES} attempts (previous output untouched)`)
   }
 
-  // the original drawing rides along on EVERY call as the style reference
-  const keySheet = await generateValidSheet('keyframes.png', sheet1Prompt(motion), [sketch])
-  const betweenSheet = await generateValidSheet('inbetweens.png', sheet2Prompt, [keySheet.buf, sketch])
+  // Per-sheet shotlist slices, so a chained run walks the whole story once.
+  const beatsPerSheet = shotlist?.length
+    ? Array.from({ length: sheetCount }, (_, s) => {
+        const from = Math.floor((s / sheetCount) * shotlist.length)
+        const to = Math.floor(((s + 1) / sheetCount) * shotlist.length)
+        return shotlist.slice(from, Math.max(from + 1, to))
+      })
+    : Array(sheetCount).fill(null)
 
-  const keys = sliceSheet(keySheet.file, sheetsDir, 'key', keySheet.grid)
-  const betweens = sliceSheet(betweenSheet.file, sheetsDir, 'between', betweenSheet.grid)
+  // the original drawing rides along on EVERY call as the style reference
+  const sheets = []
+  for (let s = 0; s < sheetCount; s++) {
+    const name = `keyframes-${s + 1}.png`
+    const prompt = s === 0
+      ? firstSheetPrompt(motion, beatsPerSheet[0])
+      : nextSheetPrompt(motion, beatsPerSheet[s], s * CELLS)
+    const images = s === 0 ? [sketch] : [sheets[s - 1].buf, sketch]
+    sheets.push(await generateValidSheet(name, prompt, images))
+  }
+
+  const files = sheets.flatMap((sheet, s) => sliceSheet(sheet.file, sheetsDir, `key-${s + 1}`, sheet.grid))
 
   fs.mkdirSync(outDir, { recursive: true })
   for (const f of fs.readdirSync(outDir)) {
     if (/^frame-\d+\.png$/.test(f) || f === 'manifest.json') fs.unlinkSync(path.join(outDir, f))
   }
-  const K = Math.min(keys.length, betweens.length)
-  const total = 2 * K
-  const frameFile = (p) => path.join(outDir, `frame-${String(p).padStart(2, '0')}.png`)
-  for (let i = 0; i < K; i++) {
-    fs.copyFileSync(keys[i], frameFile(2 * i + 1))
-    fs.copyFileSync(betweens[i], frameFile(2 * i + 2))
-  }
+  const total = files.length
+  files.forEach((f, i) => fs.copyFileSync(f, path.join(outDir, `frame-${String(i + 1).padStart(2, '0')}.png`)))
 
   const generatedAt = new Date().toISOString()
   // version query defeats browser caching of the reused frame filenames
@@ -183,11 +236,12 @@ export async function buildFlipbook({ sketch, motion, outDir, sheetsDir, log = c
     model: MODEL,
     mode: 'sheets',
     total,
-    keyframes: K,
+    keyframes: total,
+    sheets: sheetCount,
     generatedAt,
   }
   fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
 
-  log(`done: ${total} pages (${K} keyframes + ${K} in-betweens) from 2 sheet calls in ${((Date.now() - startedAt) / 1000).toFixed(0)}s → ${outDir}`)
+  log(`done: ${total} keyframes from ${sheetCount} sheet call${sheetCount > 1 ? 's' : ''} in ${((Date.now() - startedAt) / 1000).toFixed(0)}s → ${outDir}`)
   return manifest
 }

@@ -3,9 +3,10 @@ import react from '@vitejs/plugin-react'
 import fs from 'node:fs'
 import path from 'node:path'
 
-// /api/animate runs the sprite-sheet pipeline (../pipeline/sheetlib.js):
-// drawn sketch -> keyframe sheet -> in-between sheet -> sliced frames in
-// public/frames. Uses the same REPLICATE_API_TOKEN as the CLI (pipeline/.env).
+// /api/animate runs the per-frame pipeline (../pipeline/framelib.js) with
+// gpt-image-2.5-sunburst: drawn sketch -> one model call per frame (sketch +
+// previous frame as references) -> frames in public/frames. Uses the same
+// REPLICATE_API_TOKEN as the CLI (pipeline/.env).
 
 function loadReplicateToken() {
   if (process.env.REPLICATE_API_TOKEN) return process.env.REPLICATE_API_TOKEN
@@ -101,17 +102,18 @@ function animateEndpoint() {
         req.on('data', (chunk) => { body += chunk })
         req.on('end', async () => {
           try {
-            const { image, motion } = JSON.parse(body)
+            const { image, motion, frames, model } = JSON.parse(body)
             const b64 = image?.match(/^data:image\/png;base64,(.+)$/)?.[1]
             if (!b64) throw new Error('image must be a PNG data URL')
             if (!motion?.trim()) throw new Error('motion is required')
 
-            const { buildFlipbook } = await import('../pipeline/sheetlib.js')
-            const manifest = await buildFlipbook({
+            const { buildFlipbookFrames } = await import('../pipeline/framelib.js')
+            const manifest = await buildFlipbookFrames({
               sketch: Buffer.from(b64, 'base64'),
               motion: motion.trim(),
+              frames: Number(frames) || 16,
+              model: model || 'sunburst',
               outDir: path.resolve(import.meta.dirname, 'public/frames'),
-              sheetsDir: path.resolve(import.meta.dirname, '../pipeline/sheets'),
               log: (msg) => console.log('[animate]', msg),
             })
             res.setHeader('Content-Type', 'application/json')

@@ -1,7 +1,8 @@
 // CLI for the sprite-sheet flipbook pipeline — see sheetlib.js for the logic.
 //
 //   node sheets.js [--sketch sketch.png] [--motion "the duck diving under the water"]
-//     [--out ../scrubber-demo/public/frames]
+//     [--frames 16|32] [--shotlist duck-shotlist.json]
+//     [--out ../scrubber-demo/public/frames] [--sheets sheets] [--model nano-banana-2|sunburst|gpt-image-2]
 
 import 'dotenv/config'
 import fs from 'node:fs'
@@ -23,7 +24,10 @@ try {
     sketch: fs.readFileSync(arg('sketch', 'sketch.png')),
     motion: arg('motion', 'the duck diving under the water'),
     outDir: path.resolve(arg('out', '../scrubber-demo/public/frames')),
-    sheetsDir: path.resolve('sheets'),
+    sheetsDir: path.resolve(arg('sheets', 'sheets')),
+    model: arg('model'),
+    frames: Number(arg('frames', '16')),
+    shotlist: arg('shotlist') ? JSON.parse(fs.readFileSync(arg('shotlist'), 'utf8')) : null,
   })
 } catch (err) {
   console.error(String(err.message ?? err))
