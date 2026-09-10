@@ -6,11 +6,8 @@ const LOOK = {
   PAD: 14, // around the book, css px
   EDGE_PX: 1, // pile thickness per page
   MAX_EDGE_LINES: 24,
-  BINDING_H: 12,
-  TOP_PILE: 0.22, // height of the folded-back pile, as a fraction of the page
+  BINDING_H: 18, // the static top border the pages hang from
   BOIL_MS: 110, // stepped boil clock
-  BACK_PAPER: "#f7f4ee",
-  BACK_EDGE: "#d8d2c4",
   BOARD: "#ddd5c4",
   BOARD_EDGE: "#c4bba8",
   PAGE_EDGE: "#d8d2c4",
@@ -61,11 +58,11 @@ export function FlipbookCanvas({
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
       const cssW = canvas.clientWidth;
-      // square pages (the drawing pad is square) plus room for the top pile,
-      // the binding and the bottom pile
+      // square pages (the drawing pad is square) plus the binding strip above
+      // and the page-edge pile below
       const pageW = cssW - 2 * LOOK.PAD;
       const pageH = pageW;
-      const cssH = LOOK.PAD + pageH * LOOK.TOP_PILE + LOOK.BINDING_H + pageH + LOOK.MAX_EDGE_LINES * LOOK.EDGE_PX + LOOK.PAD;
+      const cssH = LOOK.PAD + LOOK.BINDING_H + pageH + LOOK.MAX_EDGE_LINES * LOOK.EDGE_PX + LOOK.PAD;
       canvas.style.height = `${cssH}px`;
       if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
         canvas.width = Math.round(cssW * dpr);
@@ -86,19 +83,18 @@ export function FlipbookCanvas({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, cssW, cssH);
 
-      const hingeY = LOOK.PAD + pageH * LOOK.TOP_PILE + LOOK.BINDING_H;
+      const hingeY = LOOK.PAD + LOOK.BINDING_H;
       const rect = { x: LOOK.PAD, y: hingeY, w: pageW, h: pageH };
 
-      // board (the cardboard back of the book): spans the flipped pile above
-      // the binding too, so pages that flip over land on something
+      // board (the cardboard back of the book)
       ctx.fillStyle = LOOK.BOARD;
       ctx.strokeStyle = LOOK.BOARD_EDGE;
       roundRect(ctx, rect.x - 6, LOOK.PAD - 6, rect.w + 12, cssH - 2 * LOOK.PAD + 12, 6);
       ctx.fill();
       ctx.stroke();
-      // a darker band behind the binding, where the pages hinge
+      // the binding strip: a darker band the pages hang from
       ctx.fillStyle = LOOK.BOARD_EDGE;
-      ctx.fillRect(rect.x - 6, hingeY - LOOK.BINDING_H - 2, rect.w + 12, LOOK.BINDING_H + 2);
+      ctx.fillRect(rect.x - 6, hingeY - LOOK.BINDING_H, rect.w + 12, LOOK.BINDING_H);
 
       if (n === 0) {
         raf = requestAnimationFrame(draw);
@@ -107,29 +103,12 @@ export function FlipbookCanvas({
 
       const flatIndex = Math.min(n - 1, snap.page);
       const remaining = n - 1 - flatIndex; // pages still under the current one
-      const flipped = snap.page; // pages on the top pile
 
       // bottom pile: one edge line per remaining page
       const bottomLines = Math.min(remaining, LOOK.MAX_EDGE_LINES);
       for (let k = 1; k <= bottomLines; k++) {
         ctx.fillStyle = k % 2 ? LOOK.PAGE_EDGE : "#fff";
         ctx.fillRect(rect.x + k * 0.4, rect.y + rect.h + (k - 1) * LOOK.EDGE_PX, rect.w - k * 0.8, LOOK.EDGE_PX);
-      }
-
-      // top pile: flipped pages seen edge-on above the binding
-      if (flipped > 0) {
-        const pileH = Math.min(flipped, LOOK.MAX_EDGE_LINES) * LOOK.EDGE_PX;
-        const topH = rect.h * LOOK.TOP_PILE;
-        ctx.fillStyle = LOOK.BACK_PAPER;
-        ctx.fillRect(rect.x, hingeY - LOOK.BINDING_H - topH, rect.w, topH);
-        ctx.fillStyle = LOOK.BACK_EDGE;
-        ctx.fillRect(rect.x, hingeY - LOOK.BINDING_H - topH - pileH, rect.w, pileH);
-        // the fold where the flipped pages bend back over the binding
-        const fold = ctx.createLinearGradient(0, hingeY - LOOK.BINDING_H - 18, 0, hingeY - LOOK.BINDING_H);
-        fold.addColorStop(0, "rgba(40, 32, 20, 0)");
-        fold.addColorStop(1, "rgba(40, 32, 20, 0.28)");
-        ctx.fillStyle = fold;
-        ctx.fillRect(rect.x, hingeY - LOOK.BINDING_H - 18, rect.w, 18);
       }
 
       // current page, flat
@@ -158,7 +137,7 @@ export function FlipbookCanvas({
       // binding: two staples over the hinge
       ctx.fillStyle = LOOK.STAPLE;
       for (const fx of [0.22, 0.78]) {
-        roundRect(ctx, rect.x + rect.w * fx - 10, hingeY - LOOK.BINDING_H + 2, 20, 6, 3);
+        roundRect(ctx, rect.x + rect.w * fx - 10, hingeY - LOOK.BINDING_H / 2 - 3, 20, 6, 3);
         ctx.fill();
       }
 
