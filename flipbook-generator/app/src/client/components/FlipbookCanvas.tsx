@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { BEND, drawFlippingPage, drawPageShadow, drawTensionShadow, drawTensionedPage } from "../flip/bend";
 import type { FlipPhysics, FlipSnapshot } from "../flip/physics";
 import { BoilRenderer, PageImages } from "../flip/textures";
 
@@ -8,10 +7,10 @@ const LOOK = {
   EDGE_PX: 1, // pile thickness per page
   MAX_EDGE_LINES: 24,
   BINDING_H: 12,
-  STRIPS_REST: 32,
-  STRIPS_RIFFLE: 12,
-  BOW: 0.35, // bow of a flying page (0 = rigid card)
+  TOP_PILE: 0.22, // height of the folded-back pile, as a fraction of the page
   BOIL_MS: 110, // stepped boil clock
+  BACK_PAPER: "#f7f4ee",
+  BACK_EDGE: "#d8d2c4",
   BOARD: "#ddd5c4",
   BOARD_EDGE: "#c4bba8",
   PAGE_EDGE: "#d8d2c4",
@@ -20,9 +19,11 @@ const LOOK = {
 
 export type PageSpec = { src: string; draft: boolean };
 
-// The canvas book. Runs the physics clock and draws the stack, the resting
-// page, any pages in flight, and the binding. Reports each frame's snapshot
-// upward so the filmstrip can follow.
+// The canvas book. Runs the physics clock and draws the board, the two piles,
+// the current page and the binding. Pages change without a flip animation —
+// the physics still paces page changes (release threshold, riffle bursts) but
+// nothing lifts or bows. Reports each frame's snapshot upward so the
+// filmstrip can follow.
 export function FlipbookCanvas({
   pages,
   physics,
@@ -47,7 +48,6 @@ export function FlipbookCanvas({
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
 
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     let raf = 0;
     let last = performance.now();
     let boilSeed = 0;
@@ -65,7 +65,7 @@ export function FlipbookCanvas({
       // the binding and the bottom pile
       const pageW = cssW - 2 * LOOK.PAD;
       const pageH = pageW;
-      const cssH = LOOK.PAD + pageH * BEND.BACK_SQUASH + LOOK.BINDING_H + pageH + LOOK.MAX_EDGE_LINES * LOOK.EDGE_PX + LOOK.PAD;
+      const cssH = LOOK.PAD + pageH * LOOK.TOP_PILE + LOOK.BINDING_H + pageH + LOOK.MAX_EDGE_LINES * LOOK.EDGE_PX + LOOK.PAD;
       canvas.style.height = `${cssH}px`;
       if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
         canvas.width = Math.round(cssW * dpr);
@@ -86,7 +86,7 @@ export function FlipbookCanvas({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, cssW, cssH);
 
-      const hingeY = LOOK.PAD + pageH * BEND.BACK_SQUASH + LOOK.BINDING_H;
+      const hingeY = LOOK.PAD + pageH * LOOK.TOP_PILE + LOOK.BINDING_H;
       const rect = { x: LOOK.PAD, y: hingeY, w: pageW, h: pageH };
 
       // board (the cardboard back of the book): spans the flipped pile above
@@ -105,9 +105,8 @@ export function FlipbookCanvas({
         return;
       }
 
-      const backFlights = snap.inFlight.filter((f) => f.dir === -1);
-      const flatIndex = Math.min(n - 1, snap.page + backFlights.length);
-      const remaining = n - 1 - flatIndex; // pages still under the flat page
+      const flatIndex = Math.min(n - 1, snap.page);
+      const remaining = n - 1 - flatIndex; // pages still under the current one
       const flipped = snap.page; // pages on the top pile
 
       // bottom pile: one edge line per remaining page
@@ -120,10 +119,10 @@ export function FlipbookCanvas({
       // top pile: flipped pages seen edge-on above the binding
       if (flipped > 0) {
         const pileH = Math.min(flipped, LOOK.MAX_EDGE_LINES) * LOOK.EDGE_PX;
-        const topH = rect.h * BEND.BACK_SQUASH;
-        ctx.fillStyle = BEND.BACK_PAPER;
+        const topH = rect.h * LOOK.TOP_PILE;
+        ctx.fillStyle = LOOK.BACK_PAPER;
         ctx.fillRect(rect.x, hingeY - LOOK.BINDING_H - topH, rect.w, topH);
-        ctx.fillStyle = BEND.BACK_EDGE;
+        ctx.fillStyle = LOOK.BACK_EDGE;
         ctx.fillRect(rect.x, hingeY - LOOK.BINDING_H - topH - pileH, rect.w, pileH);
         // the fold where the flipped pages bend back over the binding
         const fold = ctx.createLinearGradient(0, hingeY - LOOK.BINDING_H - 18, 0, hingeY - LOOK.BINDING_H);
@@ -133,20 +132,7 @@ export function FlipbookCanvas({
         ctx.fillRect(rect.x, hingeY - LOOK.BINDING_H - 18, rect.w, 18);
       }
 
-      // the page underneath: visible whenever the resting page lifts (a
-      // forward bow) — it's what the reader is about to see
-      const tension = reducedMotion ? 0 : snap.tension;
-      if (tension > 0.01 && flatIndex + 1 < n) {
-        const under = images.get(specs[flatIndex + 1].src);
-        if (under) ctx.drawImage(under, rect.x, rect.y, rect.w, rect.h);
-        else {
-          ctx.fillStyle = "#fff";
-          ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-        }
-        drawTensionShadow(ctx, rect, tension);
-      }
-
-      // resting page (bowed if the thumb is loading it)
+      // current page, flat
       const flatSpec = specs[flatIndex];
       const flatImg = images.get(flatSpec.src);
       if (flatImg) {
@@ -159,37 +145,14 @@ export function FlipbookCanvas({
           }
           tex = boil.render(flatImg, amp, boilSeed) ?? flatImg;
         }
-        if (Math.abs(tension) > 0.01) {
-          drawTensionedPage(ctx, tex, rect, tension, LOOK.STRIPS_REST, flatSpec.draft);
-        } else {
-          ctx.drawImage(tex, rect.x, rect.y, rect.w, rect.h);
-          if (flatSpec.draft) {
-            ctx.fillStyle = "rgba(244, 241, 234, 0.35)";
-            ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-          }
+        ctx.drawImage(tex, rect.x, rect.y, rect.w, rect.h);
+        if (flatSpec.draft) {
+          ctx.fillStyle = "rgba(244, 241, 234, 0.35)";
+          ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
         }
       } else {
         ctx.fillStyle = "#fff";
         ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-      }
-
-      // pages in flight: furthest along first, newest on top
-      if (!reducedMotion) {
-        const flights = [...snap.inFlight].sort((a, b) => b.t - a.t);
-        const riffling = snap.mode === "riffle" || snap.mode === "play";
-        for (const f of flights) {
-          const spec = specs[f.index];
-          if (!spec) continue;
-          const img = images.get(spec.src);
-          if (!img) continue;
-          // a backward flight is the same motion run in reverse
-          const progress = f.dir === 1 ? f.t : 1 - Math.min(1, f.t);
-          drawPageShadow(ctx, rect, progress);
-          // pages are opaque paper: no smear ghost, no alpha — a riffle is
-          // just pages moving fast, which is what a real one looks like
-          const strips = riffling ? LOOK.STRIPS_RIFFLE : LOOK.STRIPS_REST;
-          drawFlippingPage(ctx, img, rect, { progress, bow: LOOK.BOW, strips, draft: spec.draft });
-        }
       }
 
       // binding: two staples over the hinge

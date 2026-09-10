@@ -8,8 +8,11 @@ keyboard stepping) stays; only the rendering and the release timing change.
 
 Fallback point: commit `17b5696` on `claude/flipbook-animation-planning-k5wumf`.
 
-**Status (2026-09-10): implemented.** All five milestones landed on
-`claude/flipbook-canvas-flip-ui`; see §9 for what differs from the plan.
+**Status (2026-09-10): implemented, then the flip animation was removed.**
+All five milestones landed on `claude/flipbook-canvas-flip-ui`, but in use
+the flying pages read as visual noise over the drawings, so the book chrome
+(board, piles, staples, counter) and the physics-paced page changes were kept
+and the strip warp, bow and flights were dropped. See §9.
 
 ---
 
@@ -248,3 +251,12 @@ generation. Those stack cleanly on top once the canvas book is in.
   identical with it off). Vitest covers the physics (14 cases).
 - Not done: a side-by-side against a real flipbook video (milestone 3's
   tuning check) — the constants were tuned by eye on the duck only.
+
+### Removed after review
+
+`flip/bend.ts` (strip warp, bow, flight shading and shadows) and the
+in-flight rendering in `FlipbookCanvas.tsx` were removed in commit
+"Book without the flip" — the moving pages competed with the drawings. They
+live in git history if a quieter flip (e.g. a single thin edge-on page
+sweeping across, no shading) is ever wanted back. `physics.ts` still runs:
+it gives the filmstrip its release threshold and riffle pacing.
