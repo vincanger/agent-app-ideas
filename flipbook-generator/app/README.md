@@ -46,6 +46,3 @@ another Wasp app; drop those overrides if you don't need them.
 Frames are stored as PNG data URLs in the `Frame` table. That's fine for line
 art at 16–24 frames per flipbook; move them to object storage before this
 grows beyond a demo.
-
-The standalone pipeline experiments this was ported from live in
-`../pipeline` and `../scrubber-demo`.

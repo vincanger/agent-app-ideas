@@ -1,4 +1,4 @@
-// Per-frame generation (ported from ../../pipeline/framelib.js).
+// Per-frame generation.
 //
 // Frame 1 is the user's sketch itself. Every later frame is one model call
 // with two reference images: the original sketch (sole style authority) and

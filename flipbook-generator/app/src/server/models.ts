@@ -1,4 +1,4 @@
-// Image-model registry (ported from ../../pipeline/models.js).
+// Image-model registry.
 //
 // Every model takes (prompt, reference images, aspect ratio) but names the
 // inputs differently, so each entry maps our generic call onto the model's

@@ -1,4 +1,4 @@
-// Sprite-sheet stage (ported from ../../pipeline/sheetlib.js, sharp instead
+// Sprite-sheet stage (sharp instead
 // of ffmpeg). One model call lays out the whole animation as a grid, which is
 // what gives the flipbook even pacing: the model sees the entire arc at once
 // instead of guessing how much action is left frame by frame.
