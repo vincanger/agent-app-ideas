@@ -1,5 +1,6 @@
 import type { GenerateFrames } from "wasp/server/jobs";
 import { bufferToDataUrl, dataUrlToBuffer, generateFrame, redrawPrompt } from "./generation";
+import { resolveProvider } from "./models";
 import { detectGrid, pickCells, sheetPrompt, sliceSheet } from "./sheet";
 
 type Input = { flipbookId: string };
@@ -22,14 +23,15 @@ export const generateFrames: GenerateFrames<Input, void> = async ({ flipbookId }
   const sketch = dataUrlToBuffer(flipbook.sketch);
   const startedAt = Date.now();
   const log = (msg: string) => console.log(`[generate] ${flipbookId}: ${msg}`);
-  log(`${model}, ${frameCount} frames`);
+  const provider = resolveProvider();
+  log(`${model} via ${provider}, ${frameCount} frames`);
 
   try {
     // ---- stage 1: sheet ----
     let cells: Buffer[] | null = null;
     for (let attempt = 1; attempt <= SHEET_RETRIES && !cells; attempt++) {
       const t0 = Date.now();
-      const sheet = await generateFrame({ model, prompt: sheetPrompt(motion), images: [sketch], aspect: "1:1" });
+      const sheet = await generateFrame({ provider, model, prompt: sheetPrompt(motion), images: [sketch], aspect: "1:1" });
       const grid = await detectGrid(sheet);
       log(`sheet attempt ${attempt}: ${grid.cols}x${grid.rows}, uniform=${grid.uniform}, ${((Date.now() - t0) / 1000).toFixed(1)}s`);
       if (grid.uniform) cells = await sliceSheet(sheet, grid);
@@ -56,7 +58,7 @@ export const generateFrames: GenerateFrames<Input, void> = async ({ flipbookId }
         const i = next++;
         const k = i + 2;
         const t0 = Date.now();
-        const frame = await generateFrame({
+        const frame = await generateFrame({ provider,
           model,
           prompt: redrawPrompt({ k, frames: frameCount, motion }),
           images: [sketch, poses[i]],

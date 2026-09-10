@@ -1,4 +1,4 @@
-# flipbook (Wasp app)
+# flipbook app 
 
 Draw a quick sketch, describe what happens ("the duck dives under the water"),
 and get a hand-drawn flipbook back: gpt-image-2.5-sunburst redraws your sketch
@@ -10,7 +10,7 @@ saved per user in Postgres, and frame generation as a PgBoss background job.
 ## Run it
 
 ```bash
-cp .env.server.example .env.server   # add your REPLICATE_API_TOKEN
+cp .env.server.example .env.server   # add a REPLICATE_API_TOKEN or an OPENAI_API_KEY
 wasp start db                        # in one terminal (Postgres in Docker)
 wasp db migrate-dev                  # first time only
 wasp start                           # in another terminal
@@ -36,13 +36,17 @@ Then open the client URL Wasp prints, sign up, draw, and hit **animate**.
   then each cell is redrawn at full resolution in parallel with the sketch as
   the style reference. Draft cells and finished frames are saved as they land,
   so the viewer's filmstrip fills in while the job runs.
-- `src/server/models.ts` — Replicate model registry; switch with
-  `FLIPBOOK_MODEL` (aliases: `sunburst`, `gpt-image-2`, `nano-banana-2`).
+- `src/server/models.ts` — model registry and provider choice. Generation can
+  go through Replicate (`REPLICATE_API_TOKEN`) or directly through the OpenAI
+  SDK (`OPENAI_API_KEY`); with both keys set, `FLIPBOOK_PROVIDER=openai` picks
+  OpenAI. Switch models with `FLIPBOOK_MODEL` (aliases: `sunburst`, `flare`,
+  `gpt-image-2`, `nano-banana-2`; the last is Replicate-only).
 
 ## Known limitations
 
+- Currently sing Sunburst and high quality images is expensive.
 - Frames are stored as PNG data URLs in the `Frame` table (about 1 MB each).
   Fine for a demo; move them to object storage before running this for real.
-- Each flipbook costs one sprite-sheet call plus one model call per frame on
-  Replicate, so generation takes a minute or two and is billed to your token.
+- Each flipbook costs one sprite-sheet call plus one model call per frame, so
+  generation takes a minute or two and is billed to your Replicate or OpenAI key.
 - Flipbooks are private to the user who made them; there is no public library yet.

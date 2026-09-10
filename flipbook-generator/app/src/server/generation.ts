@@ -5,8 +5,9 @@
 // the previous frame (pose continuity). Frames are generated sequentially
 // because each one continues from the last.
 
+import OpenAI, { toFile } from "openai";
 import Replicate from "replicate";
-import { buildInput } from "./models";
+import { buildReplicateInput, openaiModelId, resolveProvider, type Provider } from "./models";
 
 const RETRIES = 2;
 
@@ -53,29 +54,61 @@ export function bufferToDataUrl(buf: Buffer): string {
   return `data:image/png;base64,${buf.toString("base64")}`;
 }
 
+// OpenAI's edit endpoint wants a pixel size, not an aspect ratio.
+function openaiSize(aspect: string): "1024x1024" | "1536x1024" | "1024x1536" | "auto" {
+  if (aspect === "1:1") return "1024x1024";
+  if (aspect === "3:2" || aspect === "16:9") return "1536x1024";
+  if (aspect === "2:3" || aspect === "9:16") return "1024x1536";
+  return "auto";
+}
+
+async function runReplicate(model: string, prompt: string, images: Buffer[], aspect: string): Promise<Buffer> {
+  const replicate = new Replicate();
+  const output = await replicate.run(model as `${string}/${string}`, {
+    input: buildReplicateInput(model, { prompt, images, aspect }),
+  });
+  return outputToBuffer(output);
+}
+
+async function runOpenAI(model: string, prompt: string, images: Buffer[], aspect: string): Promise<Buffer> {
+  const openai = new OpenAI();
+  // the prompts refer to "image 1", "image 2" by position, so keep the order
+  const files = await Promise.all(images.map((buf, i) => toFile(buf, `image-${i + 1}.png`, { type: "image/png" })));
+  const res = await openai.images.edit({
+    model: openaiModelId(model),
+    image: files,
+    prompt,
+    size: openaiSize(aspect),
+    quality: "high",
+    output_format: "png",
+  });
+  const b64 = res.data?.[0]?.b64_json;
+  if (!b64) throw new Error("OpenAI returned no image data");
+  return Buffer.from(b64, "base64");
+}
+
 // One model call with retries; returns the PNG bytes of the generated frame.
 export async function generateFrame({
   model,
   prompt,
   images,
   aspect = "1:1",
+  provider = resolveProvider(),
 }: {
   model: string;
   prompt: string;
   images: Buffer[];
   aspect?: string;
+  provider?: Provider;
 }): Promise<Buffer> {
-  const replicate = new Replicate();
+  const run = provider === "openai" ? runOpenAI : runReplicate;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= RETRIES; attempt++) {
     try {
-      const output = await replicate.run(model as `${string}/${string}`, {
-        input: buildInput(model, { prompt, images, aspect }),
-      });
-      return await outputToBuffer(output);
+      return await run(model, prompt, images, aspect);
     } catch (err) {
       lastErr = err;
-      console.warn(`[generate] attempt ${attempt} failed:`, err instanceof Error ? err.message : err);
+      console.warn(`[generate] ${provider} attempt ${attempt} failed:`, err instanceof Error ? err.message : err);
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
