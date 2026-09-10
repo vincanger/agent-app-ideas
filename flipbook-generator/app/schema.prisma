@@ -41,6 +41,8 @@ model Frame {
   index      Int
   // PNG data URL
   image      String
+  // true while this is the low-res sheet cell, before the full-res redraw lands
+  draft      Boolean  @default(false)
 
   @@unique([flipbookId, index])
 }

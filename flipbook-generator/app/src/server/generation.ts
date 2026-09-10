@@ -23,6 +23,15 @@ ${STYLE_NOTE}
 ${FRAME_NOTE}`;
 }
 
+// Full-resolution redraw of one sheet cell. The cell fixes the pose (and so
+// the pacing); the sketch fixes the style.
+export function redrawPrompt({ k, frames, motion }: { k: number; frames: number; motion: string }): string {
+  return `Redraw image 2 as a single full-resolution frame. It is frame ${k} of ${frames} of a flipbook animation of image 1, the original drawing. The animation: ${motion}.
+Keep image 2's pose, position, scale and every element (splashes, ripples, bubbles) exactly as they are — do not advance or change the motion. Only the rendering changes: draw it cleanly at full size in exactly the style of image 1.
+${STYLE_NOTE}
+${FRAME_NOTE}`;
+}
+
 async function outputToBuffer(output: unknown): Promise<Buffer> {
   const item = Array.isArray(output) ? output[0] : output;
   if (item && typeof (item as { blob?: unknown }).blob === "function") {

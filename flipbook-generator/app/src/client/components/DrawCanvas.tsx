@@ -3,7 +3,7 @@ import { CANVAS_SIZE, drawSmooth, simplify, type Point } from "../vector";
 
 type Stroke = { id: string; pts: Point[] };
 
-const FRAME_OPTIONS = [8, 12, 16, 24];
+const FRAME_OPTIONS = [8, 12, 16];
 
 // Minimal drawing pad: one black pencil, undo, clear, a motion prompt and a
 // frame count. Calls onSubmit with the sketch as a PNG data URL.

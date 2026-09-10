@@ -11,7 +11,7 @@ import type {
 import { resolveModel } from "./models";
 
 const MIN_FRAMES = 4;
-const MAX_FRAMES = 24;
+const MAX_FRAMES = 16; // one sheet's worth of poses
 const MIN_FPS = 2;
 const MAX_FPS = 24;
 
@@ -25,7 +25,7 @@ export const getFlipbooks: GetFlipbooks<void, FlipbookSummary[]> = async (_args,
   const flipbooks = await context.entities.Flipbook.findMany({
     where: { userId: context.user.id },
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { frames: true } } },
+    include: { _count: { select: { frames: { where: { draft: false } } } } },
   });
   return flipbooks.map(({ _count, ...f }) => ({ ...f, framesDone: _count.frames }));
 };

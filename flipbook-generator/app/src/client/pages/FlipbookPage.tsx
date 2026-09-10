@@ -65,7 +65,9 @@ export function FlipbookPage({ user }: { user: AuthUser }) {
 
       {generating && (
         <p className="hint">
-          generating page {flipbook.frames.length + 1} of {flipbook.frameCount}… you can scrub what's here so far
+          {flipbook.frames.length < flipbook.frameCount
+            ? `laying out the animation… (${flipbook.frameCount} pages)`
+            : `${flipbook.frames.filter((f) => !f.draft).length} of ${flipbook.frameCount} pages at full resolution — scrub the rough cut meanwhile`}
         </p>
       )}
       {flipbook.status === "failed" && (
