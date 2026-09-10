@@ -5,7 +5,7 @@
 export const BEND = {
   BACK_SQUASH: 0.22, // pages behind the hinge are seen edge-on: squash them
   BOW_LAG: 0.9, // how much the free edge lags the hinge at full bow
-  SHADE_MAX: 0.3, // darkest overlay on a strip seen edge-on
+  SHADE_MAX: 0.07, // darkest overlay on a strip seen edge-on — a hint, not a wash
   TENSION_ANGLE: 1.25, // radians the free edge lifts at tension 1
   BACK_PAPER: "#f7f4ee",
   BACK_EDGE: "#d8d2c4",
@@ -52,7 +52,7 @@ export function drawTensionShadow(ctx: CanvasRenderingContext2D, rect: PageRect,
   const reach = rect.h * 0.35 * lift;
   const g = ctx.createLinearGradient(0, rect.y + rect.h - reach, 0, rect.y + rect.h);
   g.addColorStop(0, "rgba(40, 32, 20, 0)");
-  g.addColorStop(1, `rgba(40, 32, 20, ${0.35 * lift})`);
+  g.addColorStop(1, `rgba(40, 32, 20, ${0.16 * lift})`);
   ctx.fillStyle = g;
   ctx.fillRect(rect.x, rect.y + rect.h - reach, rect.w, reach);
 }
@@ -139,7 +139,7 @@ export function drawPageShadow(ctx: CanvasRenderingContext2D, rect: PageRect, pr
   if (s < 0.02 || theta > Math.PI / 2) return;
   const reach = rect.h * Math.cos(theta);
   const g = ctx.createLinearGradient(0, rect.y, 0, rect.y + Math.max(1, reach));
-  g.addColorStop(0, `rgba(40, 32, 20, ${0.22 * s})`);
+  g.addColorStop(0, `rgba(40, 32, 20, ${0.12 * s})`);
   g.addColorStop(1, "rgba(40, 32, 20, 0)");
   ctx.fillStyle = g;
   ctx.fillRect(rect.x, rect.y, rect.w, Math.max(1, reach));

@@ -10,7 +10,6 @@ const LOOK = {
   BINDING_H: 12,
   STRIPS_REST: 32,
   STRIPS_RIFFLE: 12,
-  SMEAR: 0.06, // alpha lost per page/s of flight speed
   BOW: 0.35, // bow of a flying page (0 = rigid card)
   BOIL_MS: 110, // stepped boil clock
   BOARD: "#ddd5c4",
@@ -186,15 +185,10 @@ export function FlipbookCanvas({
           // a backward flight is the same motion run in reverse
           const progress = f.dir === 1 ? f.t : 1 - Math.min(1, f.t);
           drawPageShadow(ctx, rect, progress);
-          const speed = Math.abs(f.v) * 1000; // flips per second
-          const alpha = riffling ? Math.max(0.4, 1 - speed * LOOK.SMEAR) : 1;
+          // pages are opaque paper: no smear ghost, no alpha — a riffle is
+          // just pages moving fast, which is what a real one looks like
           const strips = riffling ? LOOK.STRIPS_RIFFLE : LOOK.STRIPS_REST;
-          if (riffling && speed > 6) {
-            // cheap motion blur: a ghost one frame behind
-            const ghost = f.dir === 1 ? progress - f.v * 16 : progress + f.v * 16;
-            drawFlippingPage(ctx, img, rect, { progress: ghost, bow: LOOK.BOW, strips, alpha: alpha * 0.45, draft: spec.draft });
-          }
-          drawFlippingPage(ctx, img, rect, { progress, bow: LOOK.BOW, strips, alpha, draft: spec.draft });
+          drawFlippingPage(ctx, img, rect, { progress, bow: LOOK.BOW, strips, draft: spec.draft });
         }
       }
 
