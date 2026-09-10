@@ -1,50 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { BoilCanvas } from "./BoilCanvas";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FlipPhysics, type FlipSnapshot } from "../flip/physics";
+import { FlipbookCanvas, type PageSpec } from "./FlipbookCanvas";
 
-// The flipbook player. The filmstrip of thumbnails IS the slider: dragging
-// across it flips pages, a flick keeps riffling with momentum, and the play
-// button loops at `fps` pages per second.
-export function Scrubber({
-  pages,
-  fps,
-  wobble,
-  aspect,
-}: {
-  pages: string[];
-  fps: number;
-  wobble: number;
-  aspect: number;
-}) {
-  const [pos, setPos] = useState(0); // float page position
+// The flipbook player. The canvas book draws the pages; the filmstrip of
+// thumbnails IS the slider: dragging across it thumbs through pages (they bow,
+// then snap), a flick riffles with momentum, and the play button loops at
+// `fps` pages per second.
+export function Scrubber({ pages, fps, wobble }: { pages: PageSpec[]; fps: number; wobble: number }) {
+  const physics = useMemo(() => new FlipPhysics(pages.length), []); // one book per mount
+  // dev hook so the physics can be poked from the console / headless tests
+  if (import.meta.env.DEV) (window as unknown as { __flip?: FlipPhysics }).__flip = physics;
+  const [snap, setSnap] = useState<FlipSnapshot>(() => physics.snapshot());
   const [playing, setPlaying] = useState(false);
   const stripRef = useRef<HTMLDivElement>(null);
-  const posRef = useRef(0);
-  const velRef = useRef(0);
-  const fpsRef = useRef(fps);
   const lastMove = useRef<{ t: number; p: number } | null>(null);
-  const rafRef = useRef<number>(0);
-
-  useEffect(() => { fpsRef.current = fps; }, [fps]);
+  const velRef = useRef(0);
 
   const n = pages.length;
 
-  const setPosition = useCallback((p: number, count: number) => {
-    const clamped = Math.max(0, Math.min(count - 1, p));
-    posRef.current = clamped;
-    setPos(clamped);
-  }, []);
-
-  // keep the position valid as frames stream in / the flipbook changes
+  // frames stream in while generating
   useEffect(() => {
-    if (posRef.current > n - 1) setPosition(n - 1, n);
-  }, [n, setPosition]);
+    physics.setPageCount(n);
+  }, [physics, n]);
 
-  const stopAnimations = useCallback(() => {
-    cancelAnimationFrame(rafRef.current);
-    setPlaying(false);
+  useEffect(() => {
+    if (playing) physics.setPlaySpeed(fps);
+  }, [physics, fps, playing]);
+
+  const onFrame = useCallback((s: FlipSnapshot) => {
+    setSnap(s);
+    if (s.mode !== "play") setPlaying(false);
   }, []);
-
-  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   // --- scrubbing ---
   const posFromEvent = useCallback((e: React.PointerEvent) => {
@@ -56,12 +42,13 @@ export function Scrubber({
   }, [n]);
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    stopAnimations();
     e.currentTarget.setPointerCapture(e.pointerId);
-    setPosition(posFromEvent(e), n);
-    lastMove.current = { t: performance.now(), p: posRef.current };
+    setPlaying(false);
+    physics.dragStart();
+    physics.dragTo(posFromEvent(e));
+    lastMove.current = { t: performance.now(), p: physics.pos };
     velRef.current = 0;
-  }, [n, posFromEvent, setPosition, stopAnimations]);
+  }, [physics, posFromEvent]);
 
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
@@ -70,76 +57,46 @@ export function Scrubber({
     const prev = lastMove.current;
     if (prev && now > prev.t) velRef.current = (p - prev.p) / (now - prev.t); // pages/ms
     lastMove.current = { t: now, p };
-    setPosition(p, n);
-  }, [n, posFromEvent, setPosition]);
+    physics.dragTo(p);
+  }, [physics, posFromEvent]);
 
   const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.currentTarget.releasePointerCapture(e.pointerId);
-    // flick momentum: keep riffling with decay
-    let v = velRef.current * 16; // pages per ~frame
-    let last = performance.now();
-    const step = (now: number) => {
-      const dt = (now - last) / 16;
-      last = now;
-      v *= Math.pow(0.94, dt);
-      const next = posRef.current + v * dt;
-      setPosition(next, n);
-      if (Math.abs(v) > 0.02 && next > 0 && next < n - 1) {
-        rafRef.current = requestAnimationFrame(step);
-      } else {
-        setPosition(Math.round(posRef.current), n); // snap
-      }
-    };
-    if (Math.abs(v) > 0.05) rafRef.current = requestAnimationFrame(step);
-    else setPosition(Math.round(posRef.current), n);
-  }, [n, setPosition]);
+    physics.release(velRef.current);
+  }, [physics]);
 
-  // --- play button: forward loop at fps pages/sec ---
   const togglePlay = useCallback(() => {
     if (playing) {
-      stopAnimations();
-      return;
+      physics.stop();
+      setPlaying(false);
+    } else {
+      physics.playAt(fps);
+      setPlaying(true);
     }
-    setPlaying(true);
-    let last = performance.now();
-    // unclamped accumulator: setPosition clamps to n-1, which would otherwise
-    // pin the loop just below the wrap threshold at the last page
-    let acc = posRef.current;
-    const step = (now: number) => {
-      const dt = (now - last) / 1000;
-      last = now;
-      acc = (acc + fpsRef.current * dt) % n;
-      setPosition(acc, n);
-      rafRef.current = requestAnimationFrame(step);
-    };
-    rafRef.current = requestAnimationFrame(step);
-  }, [playing, n, setPosition, stopAnimations]);
+  }, [physics, playing, fps]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // never hijack keys while the user is typing
       if (/^(INPUT|TEXTAREA|SELECT)$/.test((e.target as HTMLElement).tagName)) return;
-      if (e.key === "ArrowRight") { stopAnimations(); setPosition(Math.round(posRef.current) + 1, n); }
-      if (e.key === "ArrowLeft") { stopAnimations(); setPosition(Math.round(posRef.current) - 1, n); }
+      if (e.key === "ArrowRight") { setPlaying(false); physics.stepPage(1); }
+      if (e.key === "ArrowLeft") { setPlaying(false); physics.stepPage(-1); }
       if (e.key === " ") { e.preventDefault(); togglePlay(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [n, setPosition, stopAnimations, togglePlay]);
+  }, [physics, togglePlay]);
 
-  const current = Math.min(n - 1, Math.round(pos));
+  const current = Math.min(n - 1, snap.page);
   // with many pages, thumbnail only every few to keep the strip readable
   const step = Math.max(1, Math.round(n / 12));
-  const thumbs = pages.map((src, i) => ({ src, i })).filter(({ i }) => i % step === 0);
+  const thumbs = pages.map((p, i) => ({ src: p.src, i })).filter(({ i }) => i % step === 0);
   const activeThumb = Math.floor(current / step) * step;
-  const handlePct = n > 1 ? (pos / (n - 1)) * 100 : 0;
+  const handlePct = n > 1 ? (snap.pos / (n - 1)) * 100 : 0;
 
   return (
     <>
-      <div className="page-view" style={{ aspectRatio: aspect }}>
-        <BoilCanvas src={pages[current]} amp={wobble} />
-        <div className="page-num">{current + 1} / {n}</div>
-      </div>
+      <FlipbookCanvas pages={pages} physics={physics} wobble={wobble} onFrame={onFrame} />
 
       <div className="controls">
         <button className="play" onClick={togglePlay} aria-label="play/pause">
@@ -152,9 +109,11 @@ export function Scrubber({
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           role="slider"
+          aria-label="flipbook pages"
           aria-valuemin={1}
           aria-valuemax={n}
           aria-valuenow={current + 1}
+          aria-valuetext={`page ${current + 1} of ${n}`}
           tabIndex={0}
         >
           {thumbs.map(({ src, i }) => (

@@ -28,9 +28,14 @@ another Wasp app; drop those overrides if you don't need them.
 
 - `src/client/pages/HomePage.tsx` — drawing pad (one black pencil, undo,
   clear), motion prompt, frame count, and the list of your flipbooks.
-- `src/client/pages/FlipbookPage.tsx` — the viewer: scrubber with flick
-  momentum, play/pause at an adjustable speed (saved per flipbook), and the
-  WebGL "wobble" boil layer.
+- `src/client/pages/FlipbookPage.tsx` — the viewer. The book is a 2D canvas
+  (`components/FlipbookCanvas.tsx`) that draws the page stack, staples and the
+  page under your thumb bowing, snapping free and landing with a little
+  overshoot; a flick riffles pages in a burst. `flip/physics.ts` is the pure
+  state machine behind it (unit-tested in `physics.test.ts`), `flip/bend.ts`
+  the strip warp, and `flip/textures.ts` the WebGL "wobble" boil pre-pass.
+  Play/pause runs at an adjustable speed saved per flipbook. With
+  `prefers-reduced-motion` pages swap instead of flipping.
 - `src/server/operations.ts` — `createFlipbook` stores the sketch as frame 1
   and submits the job; queries are scoped to the logged-in user.
 - `src/server/jobs.ts` — `generateFrames` calls the model once per frame

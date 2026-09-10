@@ -8,6 +8,9 @@ keyboard stepping) stays; only the rendering and the release timing change.
 
 Fallback point: commit `17b5696` on `claude/flipbook-animation-planning-k5wumf`.
 
+**Status (2026-09-10): implemented.** All five milestones landed on
+`claude/flipbook-canvas-flip-ui`; see §9 for what differs from the plan.
+
 ---
 
 ## 1. What "feels like a flipbook" — the behaviours to reproduce
@@ -224,3 +227,24 @@ export const TUNING = {
 
 Sound on flip, a drawn thumb, printable PDF export, and any change to
 generation. Those stack cleanly on top once the canvas book is in.
+
+---
+
+## 9. As built
+
+- Files landed as planned, except `BoilCanvas.tsx` was removed rather than
+  kept: its shader now lives in `flip/textures.ts` as `BoilRenderer`, a
+  render-to-texture helper the 2D book draws from.
+- Physics differences: time is in ms throughout, the `TUNING` values were
+  rescaled accordingly (see `physics.ts`), and the covers allow a partial
+  bow (95% of a release) so pulling at either end has resistance.
+- The page *underneath* a lifting page is drawn, so a bow reveals the next
+  frame the way a real flipbook does.
+- Riffle smear is a ghost of the same page one frame behind at 45% alpha,
+  plus alpha that falls with flight speed; it kicks in above 6 flips/s.
+- Verified headlessly with puppeteer-core against the running app: rest,
+  loaded bow, flight, landing, riffle, play, backward flight, mobile-width
+  touch riffle, and the boil pre-pass (frames differ with wobble on and are
+  identical with it off). Vitest covers the physics (14 cases).
+- Not done: a side-by-side against a real flipbook video (milestone 3's
+  tuning check) — the constants were tuned by eye on the duck only.

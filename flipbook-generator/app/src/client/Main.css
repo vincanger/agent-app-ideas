@@ -70,29 +70,11 @@ h2 {
 
 /* --- viewer --- */
 
-.page-view {
-  position: relative;
+.book-canvas {
+  display: block;
   width: min(480px, 90vw);
-  background: #fff;
-  border: 1px solid #d8d2c4;
-  border-radius: 4px;
-  box-shadow: 0 2px 12px rgba(60, 50, 30, 0.12);
-  overflow: hidden;
-}
-
-.boil-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.page-num {
-  position: absolute;
-  bottom: 6px;
-  right: 10px;
-  font-size: 0.75rem;
-  color: #b0a893;
+  filter: drop-shadow(0 4px 14px rgba(60, 50, 30, 0.18));
+  touch-action: pan-y;
 }
 
 .controls {

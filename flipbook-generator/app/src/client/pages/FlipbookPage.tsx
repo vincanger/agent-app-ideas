@@ -51,7 +51,7 @@ export function FlipbookPage({ user }: { user: AuthUser }) {
     );
   }
 
-  const pages = flipbook.frames.map((f) => f.image);
+  const pages = flipbook.frames.map((f) => ({ src: f.image, draft: f.draft }));
   const generating = flipbook.status === "generating";
 
   return (
@@ -61,7 +61,7 @@ export function FlipbookPage({ user }: { user: AuthUser }) {
         <span className="hint">{flipbook.motion}</span>
       </div>
 
-      <Scrubber pages={pages} fps={fps} wobble={wobble} aspect={1} />
+      <Scrubber pages={pages} fps={fps} wobble={wobble} />
 
       {generating && (
         <p className="hint">
