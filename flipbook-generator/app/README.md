@@ -18,12 +18,6 @@ wasp start                           # in another terminal
 
 Then open the client URL Wasp prints, sign up, draw, and hit **animate**.
 
-### Ports
-
-The defaults are 3000 (client) and 3001 (server). This checkout pins 3010/3011
-in `vite.config.ts`, `.env.client`, and `.env.server` so it can run next to
-another Wasp app; drop those overrides if you don't need them.
-
 ## How it works
 
 - `src/client/pages/HomePage.tsx` — drawing pad (one black pencil, undo,
@@ -37,12 +31,18 @@ another Wasp app; drop those overrides if you don't need them.
   an adjustable speed saved per flipbook.
 - `src/server/operations.ts` — `createFlipbook` stores the sketch as frame 1
   and submits the job; queries are scoped to the logged-in user.
-- `src/server/jobs.ts` — `generateFrames` calls the model once per frame
-  (sketch + previous frame as references) and saves each frame as it lands,
+- `src/server/jobs.ts` — `generateFrames` runs in two stages: one sprite-sheet
+  call lays out the whole motion as a grid (`sheet.ts` slices it with sharp),
+  then each cell is redrawn at full resolution in parallel with the sketch as
+  the style reference. Draft cells and finished frames are saved as they land,
   so the viewer's filmstrip fills in while the job runs.
 - `src/server/models.ts` — Replicate model registry; switch with
   `FLIPBOOK_MODEL` (aliases: `sunburst`, `gpt-image-2`, `nano-banana-2`).
 
-Frames are stored as PNG data URLs in the `Frame` table. That's fine for line
-art at 16–24 frames per flipbook; move them to object storage before this
-grows beyond a demo.
+## Known limitations
+
+- Frames are stored as PNG data URLs in the `Frame` table (about 1 MB each).
+  Fine for a demo; move them to object storage before running this for real.
+- Each flipbook costs one sprite-sheet call plus one model call per frame on
+  Replicate, so generation takes a minute or two and is billed to your token.
+- Flipbooks are private to the user who made them; there is no public library yet.

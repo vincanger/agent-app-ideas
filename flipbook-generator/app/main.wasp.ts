@@ -15,7 +15,7 @@ export default app({
   name: "flipbook",
   wasp: { version: "^0.25.0" },
   title: "flipbook",
-  head: ["<link rel='icon' href='/favicon.svg' />"],
+  head: ["<link rel='icon' href='/favicon.ico' />"],
   auth: {
     userEntity: "User",
     methods: {
